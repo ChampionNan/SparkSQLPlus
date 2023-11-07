@@ -10,7 +10,7 @@ class AuxiliaryRelation(val tableName: String, val variables: List[Variable], va
 
     override def toString: String = {
         val columns = variables.map(n => n.name + ":" + n.dataType).mkString("(", ",", ")")
-        s"AuxiliaryRelation[id=${getRelationId()}][source=$tableName][cols=$columns]"
+        s"AuxiliaryRelation[id=${getRelationId()}][source=$tableName][cols=$columns][tableDisplayName=$tableDisplayName][supportingRelation=$supportingRelation]"
     }
 
     override def getTableDisplayName(): String = tableDisplayName

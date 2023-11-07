@@ -11,6 +11,8 @@ import sqlplus.gyo.GyoAlgorithm
 import sqlplus.types._
 import sqlplus.utils.DisjointSet
 
+import java.io._
+
 import scala.collection.JavaConversions._
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
@@ -69,11 +71,47 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
 
     def convert(root: RelNode): ConvertResult = {
         val (joinTreesWithComparisonHyperGraph, outputVariables, _) = run(root)
-
         // select the joinTree and ComparisonHyperGraph with minimum degree
         val selected = joinTreesWithComparisonHyperGraph.minBy(t => t._2.getDegree())
 
         ConvertResult(outputVariables, selected._1, selected._2)
+    }
+
+    // Get the process result
+    def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], isFull: String) {
+        var i = 1;
+        for ((jt, hg) <- joinTreesWithComparisonHyperGraph) {
+            val writer = new PrintWriter(new File(outPath+"JoinTree"+i.toString+".txt"))
+            writer.write("jt.root:\n" + jt.root + "\n")
+            writer.write("edge:\n")
+            for (edge <- jt.edges) {
+                writer.write(edge + "\n")
+            }
+            writer.write("relation in subset:\n")
+            for (rela <- jt.subset) {
+                writer.write(rela + "\n")
+            }
+            writer.write("comparison hypergraph edge:\n")
+            for (edge <- hg.edges) {
+                writer.write(edge + "\n")
+            }
+            writer.close()
+            i += 1
+        }
+        val writer = new PrintWriter(new File(outPath+"outputVariables"+".txt"))
+        writer.write("outputVariables:\n")
+        for (outVar <- outputVariables) {
+            writer.write(outVar + "\n")
+        }
+        writer.write("isFull:\n")
+        writer.write(isFull)
+        writer.close()
+
+    }
+
+    def convert2(root: RelNode, outpath: String) {
+        val (joinTreesWithComparisonHyperGraph, outputVariables, isFull) = run(root)
+        outputToFile(outpath, joinTreesWithComparisonHyperGraph, outputVariables, isFull)
     }
 
     def traverseLogicalPlan(root: RelNode): (List[Relation], List[(String, Expression, Expression)], List[Variable], String) = {

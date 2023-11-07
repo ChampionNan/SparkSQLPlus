@@ -17,8 +17,10 @@ class BagRelation(bag: Set[Relation]) extends Relation {
 
     override def toString: String = {
         val internal = inside.map(r => r.getTableDisplayName()).mkString(",")
+        val inId = inside.map(r => r.getRelationId()).mkString(",")
         val columns = variableList.map(n => n.name + ":" + n.dataType).mkString("(", ",", ")")
-        s"BagRelation[id=${getRelationId()}][internal=$internal][cols=$columns]"
+        val tableDisplayName = getTableDisplayName()
+        s"BagRelation[id=${getRelationId()}][inAlias=$internal][inId=$inId][cols=$columns][tableDisplayName=$tableDisplayName][internalRelations=$inside]"
     }
 }
 

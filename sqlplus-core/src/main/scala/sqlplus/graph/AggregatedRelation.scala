@@ -13,7 +13,7 @@ class AggregatedRelation(val tableName: String, val variables: List[Variable],
     override def toString: String = {
         val columns = variables.map(n => n.name + ":" + n.dataType).mkString("(", ",", ")")
         val groups = group.mkString("(", ",", ")")
-        s"AggregatedRelation[id=${getRelationId()}][source=$tableName][cols=$columns][group=$groups][func=$func]"
+        s"AggregatedRelation[id=${getRelationId()}][source=$tableName][cols=$columns][group=$groups][func=$func][tableDisplayName=$tableDisplayName]"
     }
 
     override def getTableDisplayName(): String = tableDisplayName
