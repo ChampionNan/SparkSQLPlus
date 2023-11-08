@@ -6,13 +6,12 @@ import org.apache.calcite.rex.{RexCall, RexInputRef, RexLiteral, RexNode}
 import org.apache.calcite.util.NlsString
 import sqlplus.expression._
 import sqlplus.ghd.GhdAlgorithm
-import sqlplus.graph._
+import sqlplus.graph.{AggregatedRelation, _}
 import sqlplus.gyo.GyoAlgorithm
 import sqlplus.types._
 import sqlplus.utils.DisjointSet
 
 import java.io._
-
 import scala.collection.JavaConversions._
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
@@ -26,9 +25,45 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
     val gyo: GyoAlgorithm = new GyoAlgorithm
     val ghd: GhdAlgorithm = new GhdAlgorithm
 
+    // TODO: Only support agg with tableScan
+    def removeAggRelation(relations: List[Relation]): List[Relation] = {
+        val aggRelations = relations.filter({
+            case r: AggregatedRelation => true
+            case _ => false
+        }).to[ListBuffer]
+        val tableRelations = relations.filter({
+            case r: TableScanRelation => true
+            case _ => false
+        }).to[ListBuffer]
+        val otherRelations = relations.filter({
+            case r: AggregatedRelation => false
+            case s: TableScanRelation => false
+            case _ => true
+        })
+        var newTableScanRelation: ListBuffer[TableAggRelation] = ListBuffer()
+        // Phase 1: add one agg to one table scan
+        for (agg <- aggRelations; table <- tableRelations; if !table.getVariableList().intersect(agg.getVariableList()).isEmpty) {
+            var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), List(agg.asInstanceOf[AggregatedRelation]))
+            newAggTable.initVariableList()
+            newTableScanRelation += newAggTable
+            tableRelations -= table
+            aggRelations -= agg
+        }
+        // Phase 2: If still has some agg, add it to TableAgg
+        if (aggRelations.length != 0) {
+            for (agg <- aggRelations; tableAgg <- newTableScanRelation; if !agg.getVariableList().intersect(tableAgg.getVariableList()).isEmpty) {
+                tableAgg.addAggRelation(agg.asInstanceOf[AggregatedRelation])
+                aggRelations -= agg
+            }
+        }
+        var retList: List[Relation] = otherRelations ::: newTableScanRelation.toList ::: tableRelations.toList
+        retList
+    }
+
     def run(root: RelNode): (List[(JoinTree, ComparisonHyperGraph)], List[Variable], String) = {
         val (relations, comparisons, outputVariables, isFull) = traverseLogicalPlan(root)
-        val relationalHyperGraph = relations.foldLeft(RelationalHyperGraph.EMPTY)((g, r) => g.addHyperEdge(r))
+        val removeAggRelations = removeAggRelation(relations)
+        val relationalHyperGraph = removeAggRelations.foldLeft(RelationalHyperGraph.EMPTY)((g, r) => g.addHyperEdge(r))
 
         val optGyoResult = gyo.run(relationalHyperGraph, outputVariables.toSet)
         val joinTreeWithHyperGraphs = if (optGyoResult.nonEmpty) {
