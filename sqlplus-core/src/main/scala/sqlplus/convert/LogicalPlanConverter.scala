@@ -31,6 +31,10 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
             case r: AggregatedRelation => true
             case _ => false
         }).to[ListBuffer]
+        // No need to do the modification
+        if (aggRelations.length == 0) {
+            relations
+        }
         val tableRelations = relations.filter({
             case r: TableScanRelation => true
             case _ => false
