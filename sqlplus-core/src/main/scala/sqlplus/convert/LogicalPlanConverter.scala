@@ -46,7 +46,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         })
         var newTableScanRelation: ListBuffer[TableAggRelation] = ListBuffer()
         // Phase 1: add one agg to one table scan
-        for (agg <- aggRelations; table <- tableRelations; if !table.getVariableList().intersect(agg.getVariableList()).isEmpty) {
+        for (table <- tableRelations; agg <- aggRelations; if !table.getVariableList().intersect(agg.getVariableList()).isEmpty) {
             var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), List(agg.asInstanceOf[AggregatedRelation]))
             newAggTable.initVariableList()
             newTableScanRelation += newAggTable
