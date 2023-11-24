@@ -9,7 +9,7 @@ class TableScanRelation(val tableName: String, val variables: List[Variable], va
 
     override def toString: String = {
         val columns = variables.map(n => n.name + ":" + n.dataType).mkString("(", ",", ")")
-        s"TableScanRelation[id=${getRelationId()}][source=$tableName][cols=$columns][tableDisplayName=$tableDisplayName]"
+        s"TableScanRelation;id=${getRelationId()};source=$tableName;cols=$columns;tableDisplayName=$tableDisplayName"
     }
 
     override def getTableDisplayName(): String = tableDisplayName

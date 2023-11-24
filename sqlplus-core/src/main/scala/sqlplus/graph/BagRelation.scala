@@ -20,7 +20,7 @@ class BagRelation(bag: Set[Relation]) extends Relation {
         val inId = inside.map(r => r.getRelationId()).mkString(",")
         val columns = variableList.map(n => n.name + ":" + n.dataType).mkString("(", ",", ")")
         val tableDisplayName = getTableDisplayName()
-        s"BagRelation[id=${getRelationId()}][inAlias=$internal][inId=$inId][cols=$columns][tableDisplayName=$tableDisplayName][internalRelations=$inside]"
+        s"BagRelation;id=${getRelationId()};inAlias=$internal;inId=$inId;cols=$columns;tableDisplayName=$tableDisplayName;internalRelations=$inside"
     }
 }
 

@@ -81,15 +81,7 @@ public class CliFrontend {
 
             VariableManager variableManager = new VariableManager();
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager);
-            ConvertResult convertResult = converter.convert(logicalPlan);
-
-            SqlPlusCompiler sqlPlusCompiler = new SqlPlusCompiler(variableManager);
-            CompileResult compileResult = sqlPlusCompiler.compile(catalogManager, convertResult, true);
-            CodeGenerator codeGenerator = new SparkSQLPlusExampleCodeGenerator(compileResult, packageName, objectName);
-            StringBuilder builder = new StringBuilder();
-            codeGenerator.generate(builder);
-
-            FileUtils.writeStringToFile(new File(outputPath), builder.toString());
+            converter.convert2(logicalPlan, outputPath);
         }
     }
 }

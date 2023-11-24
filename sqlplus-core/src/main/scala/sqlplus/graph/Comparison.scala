@@ -26,7 +26,7 @@ class Comparison(val nodes: Set[JoinTreeEdge], val op: Operator, val left: Expre
 
     override def toString: String = {
         val path = nodes.map(e => e.getSrc.getRelationId() + "<->" + e.getDst.getRelationId()).mkString(",")
-        s"Comparison[id=$comparisonId][op=${op.getFuncName()}][left=$left][right=$right][path=$path]"
+        s"Comparison;id=$comparisonId;op=${op.getFuncName()};left=$left;right=$right;path=$path"
     }
 }
 
