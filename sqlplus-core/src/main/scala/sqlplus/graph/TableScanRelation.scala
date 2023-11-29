@@ -8,6 +8,8 @@ class TableScanRelation(val tableName: String, val variables: List[Variable], va
 
     var aggList: List[AggregatedRelation] = List()
 
+    var aggAttachAlready: Boolean = false
+
     def addAgg(agg: AggregatedRelation) = {
         aggList = aggList :+ agg
     }

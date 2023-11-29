@@ -45,34 +45,26 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
             case _ => true
         })
         var newTableAggRelation: ListBuffer[TableAggRelation] = ListBuffer()
-        // Phase 1: add one agg to one table scan
-        /*
-        for (table <- tableRelations; agg <- aggRelations; if !table.getVariableList().intersect(agg.getVariableList()).isEmpty) {
-            var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), List(agg.asInstanceOf[AggregatedRelation]))
-            newAggTable.initVariableList()
-            newTableScanRelation += newAggTable
-            tableRelations -= table
+
+
+        for (table <- tableRelations; agg <- aggRelations; if table.getVariableList().intersect(agg.getVariableList()).nonEmpty && !table.asInstanceOf[TableScanRelation].aggAttachAlready) {
+            table.asInstanceOf[TableScanRelation].addAgg(agg.asInstanceOf[AggregatedRelation])
+            table.asInstanceOf[TableScanRelation].aggAttachAlready = true
             aggRelations -= agg
-        }*/
+        }
 
         for (table <- tableRelations; agg <- aggRelations; if table.getVariableList().intersect(agg.getVariableList()).nonEmpty) {
             table.asInstanceOf[TableScanRelation].addAgg(agg.asInstanceOf[AggregatedRelation])
             aggRelations -= agg
         }
+
         for (table <- tableRelations; if table.asInstanceOf[TableScanRelation].getAggList.nonEmpty) {
             var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), table.asInstanceOf[TableScanRelation].getAggList)
             newAggTable.initVariableList()
             newTableAggRelation += newAggTable
             tableRelations -= table
         }
-        // Phase 2: If still has some agg, add it to TableAgg
-        /*
-        if (aggRelations.length != 0) {
-            for (agg <- aggRelations; tableAgg <- newTableScanRelation; if !agg.getVariableList().intersect(tableAgg.getVariableList()).isEmpty) {
-                tableAgg.addAggRelation(agg.asInstanceOf[AggregatedRelation])
-                aggRelations -= agg
-            }
-        }*/
+
         var retList: List[Relation] = otherRelations ::: newTableAggRelation.toList ::: tableRelations.toList
         retList
     }
