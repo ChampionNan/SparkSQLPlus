@@ -32,7 +32,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
             case _ => false
         }).to[ListBuffer]
         // No need to do the modification
-        if (aggRelations.length == 0) {
+        if (aggRelations.isEmpty) {
             relations
         }
         val tableRelations = relations.filter({
