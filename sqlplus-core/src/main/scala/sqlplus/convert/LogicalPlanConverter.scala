@@ -166,16 +166,18 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         writer.write("isFull:\n")
         writer.write(isFull.toString)
         writer.close()
-        val aggWriter = new PrintWriter(new File(outPath+"aggregations"+".txt"))
-        aggWriter.write("groupByVariables:\n")
-        for (groupBy <- groupByVariables) {
-            aggWriter.write(groupBy + "\n")
+        if (aggregations.nonEmpty) {
+            val aggWriter = new PrintWriter(new File(outPath+"aggregations"+".txt"))
+            aggWriter.write("groupByVariables:\n")
+            for (groupBy <- groupByVariables) {
+                aggWriter.write(groupBy + "\n")
+            }
+            aggWriter.write("aggregations:\n")
+            for (agg <- aggregations) {
+                aggWriter.write(agg.toString())
+            }
+            aggWriter.close()
         }
-        aggWriter.write("aggregations:\n")
-        for (agg <- aggregations) {
-            aggWriter.write(agg.toString())
-        }
-        aggWriter.close()
     }
 
     def convert2(root: RelNode, outpath: String) {
