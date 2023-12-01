@@ -24,6 +24,7 @@ import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 class LogicalPlanConverter(val variableManager: VariableManager) {
     val gyo: GyoAlgorithm = new GyoAlgorithm
     val ghd: GhdAlgorithm = new GhdAlgorithm
+    var allRelations: ListBuffer[Relation] = ListBuffer()
 
     // TODO: Only support agg with tableScan
     def removeAggRelation(relations: List[Relation]): List[Relation] = {
@@ -73,6 +74,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
     def run(root: RelNode): RunResult = {
         val (relations, comparisons, outputVariables, isFull, groupByVariables, aggregations) = traverseLogicalPlan(root)
         val removeAggRelations = removeAggRelation(relations)
+        allRelations = removeAggRelations.to[ListBuffer]
         val relationalHyperGraph = removeAggRelations.foldLeft(RelationalHyperGraph.EMPTY)((g, r) => g.addHyperEdge(r))
 
         val optGyoResult = if (aggregations.isEmpty) {
@@ -138,19 +140,46 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         ConvertResult(selected._1, selected._2, runResult.outputVariables, runResult.groupByVariables, runResult.aggregations)
     }
 
+    def genAllRelations(JT: JoinTree, outPath: String): Unit = {
+        val relationWriter = new PrintWriter(new File(outPath+"relations.txt"))
+        for (rel <- allRelations) {
+            relationWriter.write(rel + "\n")
+        }
+
+        JT.edges.foreach(edge => {
+            relationWriter.write(edge.getSrc + "\n")
+            relationWriter.write(edge.getDst + "\n")
+
+
+        })
+        relationWriter.close()
+    }
+
     def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], isFull: Boolean, groupByVariables: List[Variable], aggregations: List[(String, List[Expression], Variable)]) {
         var i = 1;
+
         for ((jt, hg) <- joinTreesWithComparisonHyperGraph) {
             val writer = new PrintWriter(new File(outPath+"JoinTree"+i.toString+".txt"))
-            writer.write("jt.root:\n" + jt.root + "\n")
+            writer.write("jt.root:\n" + jt.root.getRelationId() + "\n")
             writer.write("edge:\n")
             for (edge <- jt.edges) {
-                writer.write(edge + "\n")
+                writer.write(edge.getSrc.getRelationId() + "->" + edge.getDst.getRelationId() + '\n')
             }
             writer.write("relation in subset:\n")
             for (rela <- jt.subset) {
-                writer.write(rela + "\n")
+                writer.write(rela.getRelationId() + "\n")
             }
+
+            if (i == 1) {
+                val relationWriter = new PrintWriter(new File(outPath+"relations.txt"))
+                relationWriter.write(jt.root.toString)
+                jt.edges.foreach(edge => {
+                    relationWriter.write(edge.getSrc.toString)
+                    relationWriter.write(edge.getDst.toString)
+                })
+                relationWriter.close()
+            }
+
             writer.write("comparison hypergraph edge:\n")
             for (edge <- hg.edges) {
                 writer.write(edge + "\n")
