@@ -170,15 +170,13 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
                 writer.write(rela.getRelationId() + "\n")
             }
 
-            if (i == 1) {
-                val relationWriter = new PrintWriter(new File(outPath+"relations.txt"))
-                relationWriter.write(jt.root.toString)
-                jt.edges.foreach(edge => {
-                    relationWriter.write(edge.getSrc.toString)
-                    relationWriter.write(edge.getDst.toString)
-                })
-                relationWriter.close()
-            }
+            val relationWriter = new PrintWriter(new File(outPath+"relations"+i.toString+".txt"))
+            relationWriter.write(jt.root.toString)
+            jt.edges.foreach(edge => {
+                relationWriter.write(edge.getSrc.toString)
+                relationWriter.write(edge.getDst.toString)
+            })
+            relationWriter.close()
 
             writer.write("comparison hypergraph edge:\n")
             for (edge <- hg.edges) {
