@@ -24,8 +24,8 @@ object AuxiliaryRelation {
      * @return a new AuxiliaryRelation
      */
     def createFrom(supportingRelation: Relation, remainVariables: List[Variable]): AuxiliaryRelation = {
-        val name = s"[${supportingRelation.getTableName()}]"
-        val displayName = s"[${supportingRelation.getTableDisplayName()}]"
+        val name = s"${supportingRelation.getTableName()}|${supportingRelation.getTableDisplayName()}"
+        val displayName = s"${supportingRelation.getTableDisplayName()}Aux${scala.util.Random.nextInt(100).toString}"
         assert(remainVariables.forall(v => supportingRelation.getNodes().contains(v)))
         new AuxiliaryRelation(name, remainVariables, supportingRelation, displayName)
     }
