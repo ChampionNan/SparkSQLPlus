@@ -201,7 +201,9 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
             }
             aggWriter.write("aggregations:\n")
             for (agg <- aggregations) {
-                aggWriter.write(agg.toString())
+                aggWriter.write(agg._1 + ';')
+                aggWriter.write(agg._2.toString() + ';')
+                aggWriter.write(agg._3.toString() + '\n')
             }
             aggWriter.close()
         }
