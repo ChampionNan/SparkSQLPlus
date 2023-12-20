@@ -130,7 +130,8 @@ class TpchQueriesTest {
         val logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode)
         val variableManager = new VariableManager
         val converter = new LogicalPlanConverter(variableManager)
-        converter.run(logicalPlan)
+        val res = converter.run(logicalPlan)
+        res
     }
 
     @Test

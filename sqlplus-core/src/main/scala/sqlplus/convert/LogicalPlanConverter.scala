@@ -158,17 +158,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         zippedWithDegree.filter(t => t._3 == minDegree).take(limit).map(t => (t._1, t._2))
     }
 
-    def convert(root: RelNode): ConvertResult = {
-        val runResult = run(root)
-
-        // select the joinTree and ComparisonHyperGraph with minimum degree
-        val selected = runResult.joinTreesWithComparisonHyperGraph.minBy(t => t._2.getDegree())
-
-        ConvertResult(selected._1, selected._2, runResult.outputVariables, runResult.computations, runResult.groupByVariables, runResult.aggregations)
-    }
-
-
-    def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], isFull: Boolean, groupByVariables: List[Variable], aggregations: List[(String, List[Expression], Variable)]) {
+    def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], computations: List[(Variable, Expression)], isFull: Boolean, groupByVariables: List[Variable], aggregations: List[(Variable, String, List[Expression])]) {
         var i = 1;
 
         for ((jt, hg) <- joinTreesWithComparisonHyperGraph) {
@@ -206,6 +196,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         writer.write("isFull:\n")
         writer.write(isFull.toString)
         writer.close()
+
         if (aggregations.nonEmpty) {
             val aggWriter = new PrintWriter(new File(outPath+"aggregations"+".txt"))
             aggWriter.write("groupByVariables:\n")
@@ -214,17 +205,29 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
             }
             aggWriter.write("aggregations:\n")
             for (agg <- aggregations) {
-                aggWriter.write(agg._1 + ';')
-                aggWriter.write(agg._2.toString() + ';')
-                aggWriter.write(agg._3.toString() + '\n')
+                aggWriter.write(agg._1.toString() + ';')
+                aggWriter.write(agg._2 + ';')
+                aggWriter.write("All in aggList=")
+                for (each <- agg._3) {
+                    aggWriter.write(each.toString() + ';')
+                }
             }
             aggWriter.close()
         }
     }
 
+    def convert(root: RelNode): ConvertResult = {
+        val runResult = run(root)
+
+        // select the joinTree and ComparisonHyperGraph with minimum degree
+        val selected = runResult.joinTreesWithComparisonHyperGraph.minBy(t => t._2.getDegree())
+
+        ConvertResult(selected._1, selected._2, runResult.outputVariables, runResult.computations, runResult.groupByVariables, runResult.aggregations)
+    }
+
     def convert2(root: RelNode, outpath: String) {
         val res: RunResult = run(root)
-        outputToFile(outpath, res.joinTreesWithComparisonHyperGraph, res.outputVariables, res.isFull, res.groupByVariables, res.aggregations)
+        outputToFile(outpath, res.joinTreesWithComparisonHyperGraph, res.outputVariables, res.computations, res.isFull, res.groupByVariables, res.aggregations)
     }
 
     def traverseLogicalPlan(root: RelNode): (List[Relation], List[Condition], List[Variable], List[(Variable, Expression)], Boolean,
