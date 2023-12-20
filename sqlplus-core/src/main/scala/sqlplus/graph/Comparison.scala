@@ -25,8 +25,9 @@ class Comparison(val nodes: Set[JoinTreeEdge], val op: Operator, val left: Expre
     override def hashCode(): Int = (nodes, op, left, right).##
 
     override def toString: String = {
+        val cond = s"${op.format(List(left,right))}"
         val path = nodes.map(e => e.getSrc.getRelationId() + "<->" + e.getDst.getRelationId()).mkString(",")
-        s"Comparison;id=$comparisonId;op=${op.getFuncName()};left=$left;right=$right;path=$path"
+        s"Comparison;id=$comparisonId;op=${op.getFuncName()};left=$left;right=$right;path=$path;cond=$cond"
     }
 }
 
@@ -38,7 +39,7 @@ object Comparison {
         ID
     }
 
-    def apply(nodes: Set[JoinTreeEdge], op: String, left: Expression, right: Expression): Comparison = {
-        new Comparison(nodes, Operator.getOperator(op, left, right), left, right)
+    def apply(nodes: Set[JoinTreeEdge], op: Operator, left: Expression, right: Expression): Comparison = {
+        new Comparison(nodes, op, left, right)
     }
 }
