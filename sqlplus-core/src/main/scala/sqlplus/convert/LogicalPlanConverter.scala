@@ -73,14 +73,22 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
 
 
     def run(root: RelNode): RunResult = {
-        val (relations, conditions, outputVariables, computations, isFull, groupByVariables, aggregations) = traverseLogicalPlan(root)
-        val removeAggRelations = removeAggRelation(relations)
-        val relationalHyperGraph = removeAggRelations.foldLeft(RelationalHyperGraph.EMPTY)((g, r) => g.addHyperEdge(r))
+        val context = traverseLogicalPlan(root)
+        val relations = removeAggRelation(context.relations)
+        val conditions = context.conditions
+        val outputVariables = context.outputVariables
+        val requiredVariables = context.requiredVariables
+        val computations = context.computations.toList
+        val isFull = context.isFull
+        val groupByVariables = context.groupByVariables
+        val aggregations = context.aggregations
+        val optTopK = context.optTopK
+        val relationalHyperGraph = relations.foldLeft(RelationalHyperGraph.EMPTY)((g, r) => g.addHyperEdge(r))
 
         val optGyoResult = if (aggregations.isEmpty) {
             // non-aggregation query, try to find a jointree with outputVariables at the top
             // if the query is non-free-connex, terminate and use GHD instead
-            gyo.run(relationalHyperGraph, outputVariables.toSet, true)
+            gyo.run(relationalHyperGraph, requiredVariables, true)
         } else {
             // aggregation query, try to find a jointree with groupByVariables at the top
             // if the query is non-free-connex but acyclic, find a jointree such that groupByVariables are closed to the root
@@ -149,7 +157,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
                 List.empty
         })
 
-        RunResult(joinTreesWithComparisonHyperGraph, outputVariables, computations, isFull, groupByVariables, aggregations)
+        RunResult(joinTreesWithComparisonHyperGraph, outputVariables, computations, isFull, groupByVariables, aggregations, optTopK)
     }
 
     def candidatesWithLimit(list: List[(JoinTree, ComparisonHyperGraph)], limit: Int): List[(JoinTree, ComparisonHyperGraph)] = {
@@ -226,47 +234,93 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         // select the joinTree and ComparisonHyperGraph with minimum degree
         val selected = runResult.joinTreesWithComparisonHyperGraph.minBy(t => t._2.getDegree())
 
-        ConvertResult(selected._1, selected._2, runResult.outputVariables, runResult.computations, runResult.groupByVariables, runResult.aggregations)
+        ConvertResult(selected._1, selected._2, runResult.outputVariables, runResult.computations, runResult.groupByVariables, runResult.aggregations, runResult.optTopK)
     }
 
     def convert2(root: RelNode, outpath: String) {
-        val res: RunResult = run(root)
-        outputToFile(outpath, res.joinTreesWithComparisonHyperGraph, res.outputVariables, res.computations, res.isFull, res.groupByVariables, res.aggregations)
+        val runResult = run(root)
+
+        outputToFile(outpath, runResult, runResult.outputVariables, runResult.computations, runResult.isFull, runResult.groupByVariables, runResult.aggregations)
     }
 
-    def traverseLogicalPlan(root: RelNode): (List[Relation], List[Condition], List[Variable], List[(Variable, Expression)], Boolean,
-            List[Variable], List[(Variable, String, List[Expression])]) = {
-        // Non-aggregation:
-        // (1) LogicalProject(root) -> LogicalFilter -> LogicalJoin/LogicalAggregate/LogicalTableScan
-        // Aggregation:
-        // (1) LogicalProject(root) -> LogicalAggregate -> LogicalFilter -> LogicalJoin/LogicalAggregate/LogicalTableScan
-        // (2) LogicalProject(root) -> LogicalAggregate -> LogicalProject -> LogicalFilter -> LogicalJoin/LogicalAggregate/LogicalTableScan
-        // (3) LogicalAggregate(root) -> LogicalFilter -> LogicalJoin/LogicalAggregate/LogicalTableScan
-        // (4) LogicalAggregate(root) -> LogicalProject -> LogicalFilter -> LogicalJoin/LogicalAggregate/LogicalTableScan
-        assert(root.isInstanceOf[LogicalProject] || root.isInstanceOf[LogicalAggregate])
-        val optLogicalProject = root match {
-            case project: LogicalProject => Some(project)
-            case _ => None
+    def traverseLogicalPlan(node: RelNode): Context = {
+        node match {
+            case logicalSort: LogicalSort => visitTopK(logicalSort)
+            case logicalAggregate: LogicalAggregate => visitAggregation(logicalAggregate)
+            case logicalProject: LogicalProject if logicalProject.getInput.isInstanceOf[LogicalAggregate] => visitAggregation(logicalProject)
+            case logicalProject: LogicalProject => visitJoins(logicalProject)
+        }
+    }
+
+    def visitTopK(logicalSort: LogicalSort): Context = {
+        // TopK RelNode Structure:
+        // LogicalSort -> Aggregation/Joins
+        val context = logicalSort.getInput match {
+            case logicalProject: LogicalProject => visitJoins(logicalProject)
+            // TODO: handle TopK over Aggregations
         }
 
-        val optLogicalAggregate = if(optLogicalProject.nonEmpty && optLogicalProject.get.getInput.isInstanceOf[LogicalAggregate]) {
-            Some(optLogicalProject.get.getInput.asInstanceOf[LogicalAggregate])
-        } else root match {
-            case aggregate: LogicalAggregate => Some(aggregate)
-            case _ => None
+        val isDesc = logicalSort.getCollation.getFieldCollations.get(0).getDirection.isDescending
+        val sortBy = logicalSort.getCollation.getFieldCollations.get(0).getFieldIndex
+        val limit = logicalSort.fetch.asInstanceOf[RexLiteral].getValue.asInstanceOf[java.math.BigDecimal].intValue()
+        context.optTopK = Some(TopK(context.outputVariables(sortBy), isDesc, limit))
+
+        context
+    }
+
+    def visitAggregation(relNode: RelNode): Context = {
+        // Aggregation RelNode Structure:
+        // Option[LogicalProject] -> LogicalAggregate -> Joins
+        val (optLogicalProject, logicalAggregate) = relNode match {
+            case project: LogicalProject => (Some(project), project.getInput.asInstanceOf[LogicalAggregate])
+            case aggregate: LogicalAggregate => (None, aggregate)
         }
+        val context = visitJoins(logicalAggregate.getInput)
 
-        val optIntermediateLogicalProject = if (optLogicalAggregate.nonEmpty && optLogicalAggregate.get.getInput.isInstanceOf[LogicalProject])
-            Some(optLogicalAggregate.get.getInput.asInstanceOf[LogicalProject])
-        else
-            None
+        val groupByVariables = logicalAggregate.getGroupSet.asList().map(_.toInt).map(i => context.outputVariables(i)).toList
+        val aggregations = logicalAggregate.getAggCallList.toList.map(c => {
+            val aggregateFunction = c.getAggregation.getName
+            val aggregateArguments = c.getArgList.toList.map(i => context.computations.getOrElse(context.outputVariables(i), SingleVariableExpression(context.outputVariables(i))))
+            (variableManager.getNewVariable(DataType.fromSqlType(c.getType.getSqlTypeName)), aggregateFunction, aggregateArguments)
+        })
+        // the output of logicalAggregate is always groupByVariables followed by aggregation columns
+        val aggregateOutputVariables = groupByVariables ++ aggregations.map(t => t._1)
 
-        val logicalFilter = if (optIntermediateLogicalProject.nonEmpty)
-            optIntermediateLogicalProject.get.getInput.asInstanceOf[LogicalFilter]
-        else if (optLogicalAggregate.nonEmpty)
-            optLogicalAggregate.get.getInput.asInstanceOf[LogicalFilter]
-        else
-            optLogicalProject.get.getInput.asInstanceOf[LogicalFilter]
+        val computations = mutable.HashMap.empty[Variable, Expression]  // additional computations(in LogicalProject)
+        if (optLogicalProject.isEmpty) {
+            context.outputVariables = aggregateOutputVariables
+        } else {
+            val outputVariables = optLogicalProject.get.getProjects.toList.map({
+                case call: RexCall =>
+                    val expr = convertRexCallToExpression(call, aggregateOutputVariables)
+                    val variable = variableManager.getNewVariable(DataType.fromSqlType(call.getType.getSqlTypeName))
+                    computations(variable) = expr
+                    variable
+                case inputRef: RexInputRef =>
+                    val variable = aggregateOutputVariables(inputRef.getIndex)
+                    variable
+                case literal: RexLiteral =>
+                    val expr = convertRexLiteralToExpression(literal)
+                    val variable = variableManager.getNewVariable(DataType.fromSqlType(literal.getType.getSqlTypeName))
+                    computations(variable) = expr
+                    variable
+            })
+            context.outputVariables = outputVariables
+            context.computations = context.computations ++ computations.toMap
+        }
+        context.groupByVariables = groupByVariables
+        context.aggregations = aggregations
+
+        context
+    }
+
+    def visitJoins(relNode: RelNode): Context = {
+        // Joins RelNode Structure:
+        // Option[LogicalProject] -> LogicalFilter -> LogicalJoin/LogicalAggregate/LogicalTableScan
+        val (optLogicalProject, logicalFilter) = relNode match {
+            case project: LogicalProject => (Some(project), project.getInput.asInstanceOf[LogicalFilter])
+            case filter: LogicalFilter => (None, filter)
+        }
 
         val condition = logicalFilter.getCondition.asInstanceOf[RexCall]
         assert(condition.getOperator.getName != "OR")
@@ -293,59 +347,60 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
             // replace variables in variableTable with their representatives
             variableTable(i) = disjointSet.getRepresentative(variableTable(i))
         }
+        val variableList = variableTable.toList
 
-        val relations = visitLogicalRelNode(logicalFilter.getInput, variableTable, 0)
+        val relations = visitLogicalRelNode(logicalFilter.getInput, variableList, 0)
         val conditions = conditionRexCalls.toList.map(t => {
             val (rexCall, isNeg) = t
             rexCall.getOperator.getName match {
                 case "=" if rexCall.getOperands.get(1).isInstanceOf[RexLiteral] =>
                     assert(!isNeg)
                     // handle r_name = 'EUROPE'
-                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
+                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
                     val literal = convertRexLiteralToExpression(rexCall.getOperands.get(1).asInstanceOf[RexLiteral])
                     EqualToLiteralCondition(operand, literal)
                 case "=" if rexCall.getOperands.get(0).isInstanceOf[RexLiteral] =>
                     assert(!isNeg)
                     // handle 'EUROPE' = r_name
-                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                     val literal = convertRexLiteralToExpression(rexCall.getOperands.get(0).asInstanceOf[RexLiteral])
                     EqualToLiteralCondition(operand, literal)
                 case "<>" if rexCall.getOperands.get(1).isInstanceOf[RexLiteral] =>
                     assert(!isNeg)
                     // handle r_name <> 'EUROPE'
-                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
+                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
                     val literal = convertRexLiteralToExpression(rexCall.getOperands.get(1).asInstanceOf[RexLiteral])
                     NotEqualToLiteralCondition(operand, literal)
                 case "<>" if rexCall.getOperands.get(0).isInstanceOf[RexLiteral] =>
                     assert(!isNeg)
                     // handle 'EUROPE' <> r_name
-                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                     val literal = convertRexLiteralToExpression(rexCall.getOperands.get(0).asInstanceOf[RexLiteral])
                     NotEqualToLiteralCondition(operand, literal)
                 case "<" =>
                     assert(!isNeg)
-                    val leftOperand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                    val rightOperand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                    val leftOperand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                    val rightOperand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                     LessThanCondition(leftOperand, rightOperand)
                 case "<=" =>
                     assert(!isNeg)
-                    val leftOperand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                    val rightOperand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                    val leftOperand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                    val rightOperand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                     LessThanOrEqualToCondition(leftOperand, rightOperand)
                 case ">" =>
                     assert(!isNeg)
-                    val leftOperand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                    val rightOperand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                    val leftOperand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                    val rightOperand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                     GreaterThanCondition(leftOperand, rightOperand)
                 case ">=" =>
                     assert(!isNeg)
-                    val leftOperand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                    val rightOperand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                    val leftOperand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                    val rightOperand = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                     GreaterThanOrEqualToCondition(leftOperand, rightOperand)
                 case "LIKE" =>
                     assert(rexCall.getOperands.get(0).isInstanceOf[RexInputRef])
                     assert(rexCall.getOperands.get(1).isInstanceOf[RexLiteral])
-                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
+                    val operand = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
                     val s = convertRexLiteralToExpression(rexCall.getOperands.get(1).asInstanceOf[RexLiteral]).asInstanceOf[StringLiteralExpression]
                     LikeCondition(operand, s, isNeg)
                 case "OR" =>
@@ -356,74 +411,49 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
                     val rightOperands = rexCall.getOperands.map(n => n.asInstanceOf[RexCall].getOperands.get(1))
                     assert(leftOperands.forall(n => n.isInstanceOf[RexInputRef]))
                     assert(rightOperands.forall(n => n.isInstanceOf[RexLiteral]))
-                    val operand = convertRexNodeToExpression(leftOperands.head, variableTable)
-                    assert(leftOperands.forall(n => convertRexNodeToExpression(n, variableTable) == operand))
+                    val operand = convertRexNodeToExpression(leftOperands.head, variableList)
+                    assert(leftOperands.forall(n => convertRexNodeToExpression(n, variableList) == operand))
                     val literals = rightOperands.map(n => convertRexLiteralToExpression(n.asInstanceOf[RexLiteral])).toList
                     InCondition(operand, literals, isNeg)
             }
         })
 
-        if (optLogicalAggregate.nonEmpty) {
-            // computations are those "intermediate" variables used in aggregate functions.
-            // e.g., for SUM(v1 * v4), we store v5 -> *(v1, v4) in computations.
-            val intermediateComputations = mutable.HashMap.empty[Variable, Expression]
-            val aggregateInputVariables = if (optIntermediateLogicalProject.isEmpty) {
-                // if no IntermediateLogicalProject, the aggregation is applied on the result of LogicalFilter
-                variableTable.foreach(v => {
-                    val expr = SingleVariableExpression(v)
-                    intermediateComputations(v) = expr
-                })
-                variableTable.toList
-            } else {
-                optIntermediateLogicalProject.get.getProjects.toList.map({
-                    case call: RexCall =>
-                        val expr = convertRexCallToExpression(call, variableTable)
-                        val variable = variableManager.getNewVariable(DataType.fromSqlType(call.getType.getSqlTypeName))
-                        intermediateComputations(variable) = expr
-                        variable
-                    case inputRef: RexInputRef =>
-                        val variable = variableTable(inputRef.getIndex)
-                        intermediateComputations(variable) = SingleVariableExpression(variable)
-                        variable
-                    case literal: RexLiteral =>
-                        val expr = convertRexLiteralToExpression(literal)
-                        val variable = variableManager.getNewVariable(DataType.fromSqlType(literal.getType.getSqlTypeName))
-                        intermediateComputations(variable) = expr
-                        variable
-                })
-            }
-
-            val logicalAggregate = optLogicalAggregate.get
-            val groupByVariables = logicalAggregate.getGroupSet.asList().map(_.toInt).map(i => aggregateInputVariables(i)).toList
-            val aggregateCalls = logicalAggregate.getAggCallList.toList
-            val aggregations = aggregateCalls.map(c => {
-                val aggregateFunction = c.getAggregation.getName
-                val aggregateArguments = c.getArgList.toList.map(i => intermediateComputations(aggregateInputVariables(i)))
-                (variableManager.getNewVariable(DataType.fromSqlType(c.getType.getSqlTypeName)), aggregateFunction, aggregateArguments)
-            })
-            // the output of logicalAggregate is always groupByVariables followed by aggregation columns
-            val aggregateFullResultVariables = groupByVariables ++ aggregations.map(t => t._1)
-            val outputVariables = if (optLogicalProject.nonEmpty) {
-                optLogicalProject.get.getProjects.toList.map(p => aggregateFullResultVariables(p.asInstanceOf[RexInputRef].getIndex))
-            } else {
-                // LogicalAggregate is the root. outputVariables are exactly the same the output of LogicalAggregate.
-                aggregateFullResultVariables
-            }
-
-            val isFull = false  // isFull is useless for aggregation queries
-            // report the computations for variables that are not in original relations
-            val comparisons = intermediateComputations.filter(kv => outputVariables.contains(kv._1) && !kv._2.isInstanceOf[SingleVariableExpression]).toList
-
-            (relations, conditions, outputVariables, comparisons, isFull, groupByVariables, aggregations)
+        val computations = mutable.HashMap.empty[Variable, Expression]  // additional computations(in LogicalProject)
+        val context = new Context
+        if (optLogicalProject.isEmpty) {
+            // this happens when we have aggregation over joins, set outputVariables to variableTable directly
+            context.outputVariables = variableList
+            context.requiredVariables = context.outputVariables.toSet
+            context.computations = computations.toMap
         } else {
-            // for non-aggregation query, root is always a LogicalProject.
-            val outputVariables = optLogicalProject.get.getProjects.toList.map(p => variableTable(p.asInstanceOf[RexInputRef].getIndex))
-            val isFull = variableTable.forall(v => outputVariables.contains(v))
-            // comparisons is currently unsupported for non-aggregation queries
-            val comparisons = List.empty[(Variable, Expression)]
-
-            (relations, conditions, outputVariables, comparisons, isFull, List(), List())
+            val outputVariablesBuffer = ListBuffer.empty[Variable]
+            val requiredVariablesSet = mutable.HashSet.empty[Variable]
+            optLogicalProject.get.getProjects.toList.foreach({
+                case call: RexCall =>
+                    val expr = convertRexCallToExpression(call, variableList)
+                    val variable = variableManager.getNewVariable(DataType.fromSqlType(call.getType.getSqlTypeName))
+                    computations(variable) = expr
+                    outputVariablesBuffer.append(variable)
+                    requiredVariablesSet.addAll(expr.getVariables())
+                case inputRef: RexInputRef =>
+                    val variable = variableList(inputRef.getIndex)
+                    outputVariablesBuffer.append(variable)
+                    requiredVariablesSet.add(variable)
+                case literal: RexLiteral =>
+                    val expr = convertRexLiteralToExpression(literal)
+                    val variable = variableManager.getNewVariable(DataType.fromSqlType(literal.getType.getSqlTypeName))
+                    computations(variable) = expr
+                    outputVariablesBuffer.append(variable)
+            })
+            context.outputVariables = outputVariablesBuffer.toList
+            context.requiredVariables = requiredVariablesSet.toSet
+            context.computations = computations.toMap
         }
+
+        context.relations = relations
+        context.conditions = conditions
+        context.isFull = variableList.forall(v => context.requiredVariables.contains(v))
+        context
     }
 
     private def processOperandInCondition(operand: RexNode, variableTable: Array[Variable], disjointSet: DisjointSet[Variable],
@@ -437,8 +467,9 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
                     result.append((rexCall, isNeg))
                 } else {
                     // this is a join condition like R.a = S.b
-                    val left: Expression = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                    val right: Expression = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                    val variableList = variableTable.toList
+                    val left: Expression = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                    val right: Expression = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
 
                     val leftVariable = left.asInstanceOf[SingleVariableExpression].variable
                     val rightVariable = right.asInstanceOf[SingleVariableExpression].variable
@@ -457,27 +488,27 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         }
     }
 
-    private def visitLogicalRelNode(relNode: RelNode, variableTable: Array[Variable], offset: Int): List[Relation] = relNode match {
-        case join: LogicalJoin => visitLogicalJoin(join, variableTable, offset)
-        case aggregate: LogicalAggregate => visitLogicalAggregate(aggregate, variableTable, offset)
-        case scan: LogicalTableScan => visitLogicalTableScan(scan, variableTable, offset)
+    private def visitLogicalRelNode(relNode: RelNode, variableList: List[Variable], offset: Int): List[Relation] = relNode match {
+        case join: LogicalJoin => visitLogicalJoin(join, variableList, offset)
+        case aggregate: LogicalAggregate => visitLogicalAggregate(aggregate, variableList, offset)
+        case scan: LogicalTableScan => visitLogicalTableScan(scan, variableList, offset)
         // TODO: support sub-queries like '(SELECT COUNT(*) AS cnt, src FROM path GROUP BY src) AS C2'
         case _ => throw new UnsupportedOperationException
     }
 
-    private def visitLogicalJoin(logicalJoin: LogicalJoin, variableTable: Array[Variable], offset: Int): List[Relation] = {
+    private def visitLogicalJoin(logicalJoin: LogicalJoin, variableList: List[Variable], offset: Int): List[Relation] = {
         val leftFieldCount = logicalJoin.getLeft.getRowType.getFieldCount
-        visitLogicalRelNode(logicalJoin.getLeft, variableTable, offset) ++
-            visitLogicalRelNode(logicalJoin.getRight, variableTable, offset + leftFieldCount)
+        visitLogicalRelNode(logicalJoin.getLeft, variableList, offset) ++
+            visitLogicalRelNode(logicalJoin.getRight, variableList, offset + leftFieldCount)
     }
 
-    private def visitLogicalAggregate(logicalAggregate: LogicalAggregate, variableTable: Array[Variable], offset: Int): List[Relation] = {
+    private def visitLogicalAggregate(logicalAggregate: LogicalAggregate, variableList: List[Variable], offset: Int): List[Relation] = {
         // currently, only support patterns like '(SELECT src, COUNT(*) AS cnt FROM path GROUP BY src) AS C1'
         assert(logicalAggregate.getGroupCount == 1)
         assert(logicalAggregate.getAggCallList.size() == 1)
 
         val group = logicalAggregate.getGroupSet.asList().map(_.toInt)
-        val variables = variableTable.slice(offset, offset + logicalAggregate.getRowType.getFieldCount)
+        val variables = variableList.slice(offset, offset + logicalAggregate.getRowType.getFieldCount)
         val func = logicalAggregate.getAggCallList.get(0).getAggregation.toString
 
         // TODO: support cases that can not be deal with AggregateProjectMergeRule
@@ -486,20 +517,20 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         val tableName = logicalTableScan.getTable.getQualifiedName.head
 
         if (logicalAggregate.getHints.nonEmpty) {
-            List(new AggregatedRelation(tableName, variables.toList, group.toList, func, logicalAggregate.getHints.get(0).kvOptions.get("alias")))
+            List(new AggregatedRelation(tableName, variables, group.toList, func, logicalAggregate.getHints.get(0).kvOptions.get("alias")))
         } else {
-            List(new AggregatedRelation(tableName, variables.toList, group.toList, func, s"${func}_${group.mkString("_")}_$tableName"))
+            List(new AggregatedRelation(tableName, variables, group.toList, func, s"${func}_${group.mkString("_")}_$tableName"))
         }
     }
 
-    private def visitLogicalTableScan(logicalTableScan: LogicalTableScan, variableTable: Array[Variable], offset: Int): List[Relation] = {
+    private def visitLogicalTableScan(logicalTableScan: LogicalTableScan, variableList: List[Variable], offset: Int): List[Relation] = {
         val tableName = logicalTableScan.getTable.getQualifiedName.head
-        val variables = variableTable.slice(offset, offset + logicalTableScan.getRowType.getFieldCount)
+        val variables = variableList.slice(offset, offset + logicalTableScan.getRowType.getFieldCount)
 
         if (logicalTableScan.getHints.nonEmpty) {
-            List(new TableScanRelation(tableName, variables.toList, logicalTableScan.getHints.get(0).kvOptions.get("alias")))
+            List(new TableScanRelation(tableName, variables, logicalTableScan.getHints.get(0).kvOptions.get("alias")))
         } else {
-            List(new TableScanRelation(tableName, variables.toList, tableName))
+            List(new TableScanRelation(tableName, variables, tableName))
         }
     }
 
@@ -599,14 +630,14 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         trace(reachedNodes.head).reverse
     }
 
-    def convertRexNodeToExpression(rexNode: RexNode, variableTable: Array[Variable]): Expression = {
+    def convertRexNodeToExpression(rexNode: RexNode, variableList: List[Variable]): Expression = {
         rexNode match {
             case rexInputRef: RexInputRef =>
-                SingleVariableExpression(variableTable(rexInputRef.getIndex))
+                SingleVariableExpression(variableList(rexInputRef.getIndex))
             case rexCall: RexCall if rexCall.op.getName == "CAST" =>
-                convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
+                convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
             case rexCall: RexCall =>
-                convertRexCallToExpression(rexCall, variableTable)
+                convertRexCallToExpression(rexCall, variableList)
             case rexLiteral: RexLiteral =>
                 convertRexLiteralToExpression(rexLiteral)
             case _ =>
@@ -614,11 +645,11 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         }
     }
 
-    def convertRexCallToExpression(rexCall: RexCall, variableTable: Array[Variable]): Expression = {
+    def convertRexCallToExpression(rexCall: RexCall, variableList: List[Variable]): Expression = {
         rexCall.op.getName match {
             case "+" =>
-                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                val right = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                val right = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                 if (left.getType() == TimestampDataType && right.getType() == IntervalDataType) {
                     TimestampPlusIntervalExpression(left, right)
                 } else if (left.getType() == DateDataType && right.getType() == IntervalDataType) {
@@ -631,8 +662,8 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
                     }
                 }
             case "-" =>
-                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                val right = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                val right = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                 if (left.getType() == TimestampDataType && right.getType() == IntervalDataType) {
                     TimestampMinusIntervalExpression(left, right)
                 } else if (left.getType() == DateDataType && right.getType() == IntervalDataType) {
@@ -645,34 +676,34 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
                     }
                 }
             case "*" =>
-                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                val right = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                val right = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                 DataTypeCasting.promote(left.getType(), right.getType()) match {
                     case DoubleDataType => DoubleTimesDoubleExpression(left, right)
                     case LongDataType => LongTimesLongExpression(left, right)
                     case IntDataType => IntTimesIntExpression(left, right)
                 }
             case "/" =>
-                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable)
-                val right = convertRexNodeToExpression(rexCall.getOperands.get(1), variableTable)
+                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList)
+                val right = convertRexNodeToExpression(rexCall.getOperands.get(1), variableList)
                 DataTypeCasting.promote(left.getType(), right.getType()) match {
                     case DoubleDataType => DoubleDivideByDoubleExpression(left, right)
                     case LongDataType => LongDivideByLongExpression(left, right)
                     case IntDataType => IntDivideByIntExpression(left, right)
                 }
             case "CASE" =>
-                buildCaseWhenExpression(rexCall.getOperands.toList, variableTable)
+                buildCaseWhenExpression(rexCall.getOperands.toList, variableList)
             case "EXTRACT" =>
-                buildExtractExpression(rexCall.getOperands.toList, variableTable)
+                buildExtractExpression(rexCall.getOperands.toList, variableList)
             case _ =>
                 throw new UnsupportedOperationException("unsupported op " + rexCall.op.getName)
         }
     }
 
-    def convertRexCallToOperatorAndExpressions(rexCall: RexCall, variableTable: Array[Variable]): (Operator, List[Expression]) = {
+    def convertRexCallToOperatorAndExpressions(rexCall: RexCall, variableList: List[Variable]): (Operator, List[Expression]) = {
         rexCall.getOperator.getName match {
             case "SEARCH" =>
-                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableTable).asInstanceOf[SingleVariableExpression]
+                val left = convertRexNodeToExpression(rexCall.getOperands.get(0), variableList).asInstanceOf[SingleVariableExpression]
                 val dataType = left.getType()
                 val sarg = rexCall.getOperands.get(1).asInstanceOf[RexLiteral].getValue.asInstanceOf[Sarg[_]]
                 val ranges = sarg.rangeSet.asRanges().toList
@@ -734,7 +765,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         }
     }
 
-    def buildCaseWhenExpression(operands: List[RexNode], variableTable: Array[Variable]): CaseWhenExpression = {
+    def buildCaseWhenExpression(operands: List[RexNode], variableList: List[Variable]): CaseWhenExpression = {
         var index = 0
         assert(operands.size % 2 == 1)  // we should have a default branch
         val buffer = ListBuffer.empty[(Operator, List[Expression], Expression)]
@@ -742,24 +773,24 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         while (index + 1 < operands.size) {
             // when clause
             val w = operands(index)
-            val (wOp, wExprs) = convertRexCallToOperatorAndExpressions(w.asInstanceOf[RexCall], variableTable)
+            val (wOp, wExprs) = convertRexCallToOperatorAndExpressions(w.asInstanceOf[RexCall], variableList)
             // then clause
             val t = operands(index + 1)
-            val tExpr = convertRexNodeToExpression(t, variableTable)
+            val tExpr = convertRexNodeToExpression(t, variableList)
             buffer.append((wOp, wExprs, tExpr))
             index += 2
         }
 
         // now we reach the default branch
-        val dExpr = convertRexNodeToExpression(operands.last, variableTable)
+        val dExpr = convertRexNodeToExpression(operands.last, variableList)
         CaseWhenExpression(buffer.toList, dExpr)
     }
 
-    def buildExtractExpression(operands: List[RexNode], variableTable: Array[Variable]): Expression = {
+    def buildExtractExpression(operands: List[RexNode], variableList: List[Variable]): Expression = {
         val flag = operands.get(0).asInstanceOf[RexLiteral].getValue.toString
         flag match {
             case "YEAR" =>
-                val from = convertRexNodeToExpression(operands(1), variableTable)
+                val from = convertRexNodeToExpression(operands(1), variableList)
                 ExtractYearExpression(from)
             case _ => throw new UnsupportedOperationException("unsupported flag " + flag + " in EXTRACT.")
         }
