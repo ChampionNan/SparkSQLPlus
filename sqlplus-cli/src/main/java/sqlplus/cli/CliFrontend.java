@@ -38,9 +38,6 @@ public class CliFrontend {
     }
 
     public static void main(String[] args) throws Exception {
-        DefaultParser cliParser = new DefaultParser();
-        CommandLine commandLine = cliParser.parse(CliFrontendOptions.getOptions(), args, true);
-        String outputPath = commandLine.getOptionValue(CliFrontendOptions.OUTPUT_OPTION.getOpt());
         long t1 = System.currentTimeMillis();
 
         {
@@ -66,11 +63,14 @@ public class CliFrontend {
             RelNode logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode);
             VariableManager variableManager = new VariableManager();
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager);
-            converter.convert2(logicalPlan, outputPath);
+            converter.convert(logicalPlan);
         }
 
         long t2 = System.currentTimeMillis();
 
+        DefaultParser cliParser = new DefaultParser();
+        CommandLine commandLine = cliParser.parse(CliFrontendOptions.getOptions(), args, true);
+        String outputPath = commandLine.getOptionValue(CliFrontendOptions.OUTPUT_OPTION.getOpt());
         if (commandLine.hasOption(CliFrontendOptions.HELP_OPTION.getOpt())) {
             printHelpMessage();
         } else {
