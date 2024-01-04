@@ -197,6 +197,10 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
             i += 1
         }
         val writer = new PrintWriter(new File(outPath+"outputVariables"+".txt"))
+        writer.write("computations:\n")
+        for (comp <- computations) {
+            writer.write(comp.toString() + "\n")
+        }
         writer.write("outputVariables:\n")
         for (outVar <- outputVariables) {
             writer.write(outVar + "\n")
@@ -246,7 +250,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
     def convert2(root: RelNode, outpath: String) {
         val runResult = run(root)
 
-        outputToFile(outpath, runResult, runResult.outputVariables, runResult.computations, runResult.isFull, runResult.groupByVariables, runResult.aggregations)
+        outputToFile(outpath, runResult.joinTreesWithComparisonHyperGraph, runResult.outputVariables, runResult.computations, runResult.isFull, runResult.groupByVariables, runResult.aggregations, runResult.optTopK)
     }
 
     def traverseLogicalPlan(node: RelNode): Context = {
