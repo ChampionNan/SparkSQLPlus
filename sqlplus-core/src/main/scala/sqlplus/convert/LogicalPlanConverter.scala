@@ -166,7 +166,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         zippedWithDegree.filter(t => t._3 == minDegree).take(limit).map(t => (t._1, t._2))
     }
 
-    def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], computations: List[(Variable, Expression)], isFull: Boolean, groupByVariables: List[Variable], aggregations: List[(Variable, String, List[Expression])]) {
+    def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], computations: List[(Variable, Expression)], isFull: Boolean, groupByVariables: List[Variable], aggregations: List[(Variable, String, List[Expression])], optTopK: Option[TopK]) {
         var i = 1;
 
         for ((jt, hg) <- joinTreesWithComparisonHyperGraph) {
@@ -225,6 +225,12 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
                 aggWriter.write("|\n")
             }
             aggWriter.close()
+        }
+
+        if (optTopK.nonEmpty) {
+            val topKWriter = new PrintWriter(new File(outPath+"topK"+".txt"))
+            topKWriter.write(optTopK.mkString)
+            topKWriter.close()
         }
     }
 
