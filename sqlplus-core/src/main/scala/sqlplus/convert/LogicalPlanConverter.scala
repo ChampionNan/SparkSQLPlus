@@ -250,9 +250,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
     def convert2(root: RelNode, outpath: String) {
         val runResult = run(root)
 
-        val selected = runResult.joinTreesWithComparisonHyperGraph.maxBy(t => t._1.height)
-
-        outputToFile(outpath, List(selected), runResult.outputVariables, runResult.computations, runResult.isFull, runResult.groupByVariables, runResult.aggregations, runResult.optTopK)
+        outputToFile(outpath, runResult.joinTreesWithComparisonHyperGraph, runResult.outputVariables, runResult.computations, runResult.isFull, runResult.groupByVariables, runResult.aggregations, runResult.optTopK)
     }
 
     def traverseLogicalPlan(node: RelNode): Context = {
