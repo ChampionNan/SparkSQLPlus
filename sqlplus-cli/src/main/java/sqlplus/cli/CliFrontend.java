@@ -67,6 +67,7 @@ public class CliFrontend {
         }
 
         long t2 = System.currentTimeMillis();
+        System.out.println(t2-t1);
 
         DefaultParser cliParser = new DefaultParser();
         CommandLine commandLine = cliParser.parse(CliFrontendOptions.getOptions(), args, true);
@@ -112,7 +113,8 @@ public class CliFrontend {
             VariableManager variableManager = new VariableManager();
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager);
             converter.convert2(logicalPlan, outputPath);
-            System.out.println(t2-t1);
         }
+        long t3 = System.currentTimeMillis();
+        System.out.println(t3-t2);
     }
 }
