@@ -166,7 +166,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         zippedWithDegree.filter(t => t._3 == minDegree).take(limit).map(t => (t._1, t._2))
     }
 
-    def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], computations: List[(Variable, Expression)], isFull: Boolean, groupByVariables: List[Variable], aggregations: List[(Variable, String, List[Expression])], optTopK: Option[TopK]) {
+    def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], computations: List[(Variable, Expression)], isFull: Boolean, isFreeConnex: Boolean, groupByVariables: List[Variable], aggregations: List[(Variable, String, List[Expression])], optTopK: Option[TopK]) {
         var i = 1;
 
         for ((jt, hg) <- joinTreesWithComparisonHyperGraph) {
@@ -206,7 +206,9 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
             writer.write(outVar + "\n")
         }
         writer.write("isFull:\n")
-        writer.write(isFull.toString)
+        writer.write(isFull.toString + "\n")
+        writer.write("isFreeConnex:\n")
+        writer.write(isFreeConnex.toString)
         writer.close()
 
         if (aggregations.nonEmpty) {
@@ -251,7 +253,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
     def convert2(root: RelNode, outpath: String) {
         val runResult = run(root)
 
-        outputToFile(outpath, runResult.joinTreesWithComparisonHyperGraph, runResult.outputVariables, runResult.computations, runResult.isFull, runResult.groupByVariables, runResult.aggregations, runResult.optTopK)
+        outputToFile(outpath, runResult.joinTreesWithComparisonHyperGraph, runResult.outputVariables, runResult.computations, runResult.isFull, runResult.isFreeConnex, runResult.groupByVariables, runResult.aggregations, runResult.optTopK)
     }
 
     def traverseLogicalPlan(node: RelNode): Context = {
