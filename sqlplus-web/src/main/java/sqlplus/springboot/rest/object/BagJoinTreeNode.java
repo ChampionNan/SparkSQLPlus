@@ -11,11 +11,13 @@ import java.util.stream.Collectors;
 public class BagJoinTreeNode extends JoinTreeNode {
     List<String> internal;
     List<String> columns;
+    String alias;
 
     public BagJoinTreeNode(BagRelation relation) {
         super(relation.getRelationId(), "BagRelation");
         this.internal = JavaConverters.seqAsJavaList(relation.getInternalRelations()).stream().map(Relation::getTableDisplayName).collect(Collectors.toList());
         this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
+        this.alias = relation.getTableDisplayName();
     }
 
     public List<String> getInternal() {
