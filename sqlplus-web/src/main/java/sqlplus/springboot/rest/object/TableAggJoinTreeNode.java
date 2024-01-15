@@ -15,7 +15,7 @@ public class TableAggJoinTreeNode extends JoinTreeNode {
 	String aggList;
 
 	public TableAggJoinTreeNode(TableAggRelation relation) {
-		super(relation.getRelationId(), "TableAggRelation");
+		super(relation.getRelationId(), "TableAggRelation", relation.getTableDisplayName());
 		this.source = relation.getTableName();
 		this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
 		this.alias = relation.tableDisplayName();
@@ -37,4 +37,8 @@ public class TableAggJoinTreeNode extends JoinTreeNode {
 	public void setColumns(List<String> columns) {
 		this.columns = columns;
 	}
+
+	public String getAggList() { return aggList; }
+
+	public void setAggList(String aggList) {this.aggList = aggList; }
 }
