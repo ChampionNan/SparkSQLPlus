@@ -160,98 +160,29 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         RunResult(joinTreesWithComparisonHyperGraph, outputVariables, computations, isFull, isFreeConnex, groupByVariables, aggregations, optTopK)
     }
 
-    def run2(root: RelNode): RunResult = {
-        val originRes = run(root)
-        val selected = originRes.joinTreesWithComparisonHyperGraph.minBy(t => t._1.maxFanout)
-        val runResult = RunResult(List(selected), originRes.outputVariables, originRes.computations, originRes.isFull, originRes.isFreeConnex, originRes.groupByVariables, originRes.aggregations, originRes.optTopK)
-        runResult
-    }
-
     def candidatesWithLimit(list: List[(JoinTree, ComparisonHyperGraph)], limit: Int): List[(JoinTree, ComparisonHyperGraph)] = {
         val zippedWithDegree = list.map(t => (t._1, t._2, t._2.getDegree()))
         val minDegree = zippedWithDegree.map(t => t._3).min
         zippedWithDegree.filter(t => t._3 == minDegree).take(limit).map(t => (t._1, t._2))
     }
 
-    def outputToFile(outPath: String, joinTreesWithComparisonHyperGraph: List[(JoinTree, ComparisonHyperGraph)], outputVariables: List[Variable], computations: List[(Variable, Expression)], isFull: Boolean, groupByVariables: List[Variable], aggregations: List[(Variable, String, List[Expression])], optTopK: Option[TopK]) {
-        var i = 1;
 
-        for ((jt, hg) <- joinTreesWithComparisonHyperGraph) {
-            val writer = new PrintWriter(new File(outPath+"JoinTree"+i.toString+".txt"))
-            writer.write("jt.root:\n" + jt.root.getRelationId() + "\n")
-            writer.write("edge:\n")
-            for (edge <- jt.edges) {
-                writer.write(edge.getSrc.getRelationId() + "->" + edge.getDst.getRelationId() + '\n')
-            }
-            writer.write("relation in subset:\n")
-            for (rela <- jt.subset) {
-                writer.write(rela.getRelationId() + "\n")
-            }
-
-            val relationWriter = new PrintWriter(new File(outPath+"relations"+i.toString+".txt"))
-            relationWriter.write(jt.root.toString)
-            jt.edges.foreach(edge => {
-                relationWriter.write(edge.getSrc.toString)
-                relationWriter.write(edge.getDst.toString)
-            })
-            relationWriter.close()
-
-            writer.write("comparison hypergraph edge:\n")
-            for (edge <- hg.edges) {
-                writer.write(edge + "\n")
-            }
-            writer.close()
-            i += 1
-        }
-        val writer = new PrintWriter(new File(outPath+"outputVariables"+".txt"))
-        writer.write("computations:\n")
-        for (comp <- computations) {
-            writer.write(comp.toString() + "\n")
-        }
-        writer.write("outputVariables:\n")
-        for (outVar <- outputVariables) {
-            writer.write(outVar + "\n")
-        }
-        writer.write("isFull:\n")
-        writer.write(isFull.toString)
-        writer.close()
-
-        if (aggregations.nonEmpty) {
-            val aggWriter = new PrintWriter(new File(outPath+"aggregations"+".txt"))
-            aggWriter.write("groupByVariables:\n")
-            for (groupBy <- groupByVariables) {
-                aggWriter.write(groupBy + "\n")
-            }
-            aggWriter.write("aggregations:\n")
-            for (agg <- aggregations) {
-                aggWriter.write(agg._2 + ';')
-                aggWriter.write(agg._1.toString() + ';')
-                aggWriter.write("AggList=|")
-                if (agg._3.isEmpty) {
-                    aggWriter.write("NULL")
-                }
-                for (each <- agg._3) {
-                    aggWriter.write(each.toString() + ';')
-                }
-                aggWriter.write("|\n")
-            }
-            aggWriter.close()
-        }
-
-        if (optTopK.nonEmpty) {
-            val topKWriter = new PrintWriter(new File(outPath+"topK"+".txt"))
-            topKWriter.write(optTopK.mkString)
-            topKWriter.close()
-        }
-    }
-
-    def convert(root: RelNode): ConvertResult = {
+    def runAndSelect(root: RelNode, orderBy: String = "degree", desc: Boolean = true, limit: Int = 1): RunResult = {
         val runResult = run(root)
 
-        // select the joinTree and ComparisonHyperGraph with minimum degree
-        val selected = runResult.joinTreesWithComparisonHyperGraph.minBy(t => t._1.maxFanout)
+        val selected = orderBy match {
+            case "degree" if !desc =>
+                // select the joinTree and ComparisonHyperGraph with minimum degree
+                runResult.joinTreesWithComparisonHyperGraph.sortBy(t => t._2.getDegree()).take(limit)
+            case "fanout" if !desc =>
+                // select the joinTree and ComparisonHyperGraph with minimum maxFanout
+                runResult.joinTreesWithComparisonHyperGraph.sortBy(t => t._1.getMaxFanout()).take(limit)
+            case "" =>
+                runResult.joinTreesWithComparisonHyperGraph.take(limit)
+        }
 
-        ConvertResult(selected._1, selected._2, runResult.outputVariables, runResult.computations, runResult.isFreeConnex,
+
+        RunResult(selected, runResult.outputVariables, runResult.computations, runResult.isFull, runResult.isFreeConnex,
             runResult.groupByVariables, runResult.aggregations, runResult.optTopK)
     }
 
