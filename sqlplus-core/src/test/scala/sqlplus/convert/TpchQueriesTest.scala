@@ -131,7 +131,6 @@ class TpchQueriesTest {
         val variableManager = new VariableManager
         val converter = new LogicalPlanConverter(variableManager)
         val res = converter.run(logicalPlan)
-        res
     }
 
     @Test

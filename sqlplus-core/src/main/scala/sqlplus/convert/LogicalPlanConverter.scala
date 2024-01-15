@@ -160,6 +160,13 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         RunResult(joinTreesWithComparisonHyperGraph, outputVariables, computations, isFull, isFreeConnex, groupByVariables, aggregations, optTopK)
     }
 
+    def run2(root: RelNode): RunResult = {
+        val originRes = run(root)
+        val selected = originRes.joinTreesWithComparisonHyperGraph.minBy(t => t._1.maxFanout)
+        val runResult = RunResult(List(selected), originRes.outputVariables, originRes.computations, originRes.isFull, originRes.isFreeConnex, originRes.groupByVariables, originRes.aggregations, originRes.optTopK)
+        runResult
+    }
+
     def candidatesWithLimit(list: List[(JoinTree, ComparisonHyperGraph)], limit: Int): List[(JoinTree, ComparisonHyperGraph)] = {
         val zippedWithDegree = list.map(t => (t._1, t._2, t._2.getDegree()))
         val minDegree = zippedWithDegree.map(t => t._3).min

@@ -49,7 +49,8 @@ public class RestApiController {
 
             VariableManager variableManager = new VariableManager();
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager);
-            RunResult runResult = converter.run(logicalPlan);
+            RunResult runResult = converter.run2(logicalPlan);
+
 
             ParseQueryResponse response = new ParseQueryResponse();
             response.setTables(tables.stream()
