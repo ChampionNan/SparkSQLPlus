@@ -242,7 +242,7 @@ class LogicalPlanConverter(val variableManager: VariableManager) {
         val runResult = run(root)
 
         // select the joinTree and ComparisonHyperGraph with minimum degree
-        val selected = runResult.joinTreesWithComparisonHyperGraph.minBy(t => t._2.getDegree())
+        val selected = runResult.joinTreesWithComparisonHyperGraph.minBy(t => t._1.maxFanout)
 
         ConvertResult(selected._1, selected._2, runResult.outputVariables, runResult.computations, runResult.isFreeConnex,
             runResult.groupByVariables, runResult.aggregations, runResult.optTopK)

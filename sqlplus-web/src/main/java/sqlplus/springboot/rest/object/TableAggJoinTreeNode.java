@@ -12,12 +12,14 @@ public class TableAggJoinTreeNode extends JoinTreeNode {
 	String source;
 	List<String> columns;
 	String alias;
+	String aggList;
 
 	public TableAggJoinTreeNode(TableAggRelation relation) {
 		super(relation.getRelationId(), "TableAggRelation");
 		this.source = relation.getTableName();
 		this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
 		this.alias = relation.tableDisplayName();
+		this.aggList = relation.getAggId();
 	}
 
 	public String getSource() {

@@ -109,6 +109,8 @@ public class RestApiController {
                 return new AuxiliaryJoinTreeNode((AuxiliaryRelation) r);
             } else if (r instanceof AggregatedRelation) {
                 return new AggregatedJoinTreeNode((AggregatedRelation) r);
+            } else if (r instanceof TableAggRelation) {
+                return new TableAggJoinTreeNode((TableAggRelation) r);
             } else {
                 return new BagJoinTreeNode((BagRelation) r);
             }
