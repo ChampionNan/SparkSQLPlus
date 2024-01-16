@@ -15,6 +15,8 @@ class Comparison(val nodes: Set[JoinTreeEdge], val op: Operator, val left: Expre
 
     def getComparisonId(): Int = comparisonId
 
+    def getCond(): String = s"${op.format(List(left,right))}"
+
     override def getNodes(): Set[JoinTreeEdge] = nodes
 
     override def equals(obj: Any): Boolean = obj match {
@@ -25,7 +27,7 @@ class Comparison(val nodes: Set[JoinTreeEdge], val op: Operator, val left: Expre
     override def hashCode(): Int = (nodes, op, left, right).##
 
     override def toString: String = {
-        val cond = s"${op.format(List(left,right))}"
+        val cond = getCond()
         val path = nodes.map(e => e.getSrc.getRelationId() + "<->" + e.getDst.getRelationId()).mkString(",")
         s"Comparison;id=$comparisonId;opName=${op.getFuncName()};left=$left;right=$right;path=$path;cond=$cond;op=$op"
     }

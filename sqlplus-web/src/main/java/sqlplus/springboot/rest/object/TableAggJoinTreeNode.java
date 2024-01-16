@@ -19,7 +19,7 @@ public class TableAggJoinTreeNode extends JoinTreeNode {
 		this.source = relation.getTableName();
 		this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
 		this.alias = relation.tableDisplayName();
-		this.aggList = relation.getAggId();
+		this.aggList = relation.getAggId() + '\n' + relation.concatInside();
 	}
 
 	public String getSource() {

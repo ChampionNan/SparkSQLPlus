@@ -125,11 +125,13 @@ public class RestApiController {
         result.setMaxFanout(joinTree.getMaxFanout());
 
         List<Comparison> comparisons = JavaConverters.setAsJavaSet(comparisonHyperGraph.getEdges()).stream().map(c -> {
-            String op = c.op().getFuncName();
+            String cond = c.getCond();
+            String opName = c.op().getFuncName();
+            String op = c.op().toString();
             List<JoinTreeEdge> path = JavaConverters.setAsJavaSet(c.getNodes()).stream()
                     .map(e -> new JoinTreeEdge(e.getSrc().getRelationId(), e.getDst().getRelationId()))
                     .collect(Collectors.toList());
-            return new Comparison(op, path, c.left().format(), c.right().format());
+            return new Comparison(opName, path, c.left().format(), c.right().format(), cond, op);
         }).collect(Collectors.toList());
         result.setComparisons(comparisons);
 

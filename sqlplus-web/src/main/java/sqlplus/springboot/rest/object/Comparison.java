@@ -3,19 +3,31 @@ package sqlplus.springboot.rest.object;
 import java.util.List;
 
 public class Comparison {
-    String op;
+    String opName;
     List<JoinTreeEdge> path;
     String left;
     String right;
+    String cond;
+    String op;
 
     public Comparison() {
     }
 
-    public Comparison(String op, List<JoinTreeEdge> path, String left, String right) {
-        this.op = op;
+    public Comparison(String opName, List<JoinTreeEdge> path, String left, String right, String cond, String op) {
+        this.opName = opName;
         this.path = path;
         this.left = left;
         this.right = right;
+        this.cond = cond;
+        this.op = op;
+    }
+
+    public String getOpName() {
+        return opName;
+    }
+
+    public void setOpName(String opName) {
+        this.opName = opName;
     }
 
     public String getOp() {
@@ -48,5 +60,13 @@ public class Comparison {
 
     public void setRight(String right) {
         this.right = right;
+    }
+
+    public String getCond() {
+        return cond;
+    }
+
+    public void setCond(String cond) {
+        this.cond = cond;
     }
 }
