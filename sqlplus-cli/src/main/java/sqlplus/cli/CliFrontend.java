@@ -1,17 +1,5 @@
 package sqlplus.cli;
 
-import scala.collection.mutable.StringBuilder;
-import sqlplus.catalog.CatalogManager;
-import sqlplus.codegen.CodeGenerator;
-import sqlplus.codegen.SparkSQLPlusExampleCodeGenerator;
-import sqlplus.compile.CompileResult;
-import sqlplus.compile.SqlPlusCompiler;
-import sqlplus.convert.ConvertResult;
-import sqlplus.convert.LogicalPlanConverter;
-import sqlplus.expression.VariableManager;
-import sqlplus.parser.SqlPlusParser;
-import sqlplus.plan.SqlPlusPlanner;
-import sqlplus.convert.RunResult;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
@@ -19,6 +7,17 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.io.FileUtils;
+import scala.collection.mutable.StringBuilder;
+import sqlplus.catalog.CatalogManager;
+import sqlplus.codegen.CodeGenerator;
+import sqlplus.codegen.SparkSQLPlusExampleCodeGenerator;
+import sqlplus.compile.CompileResult;
+import sqlplus.compile.SqlPlusCompiler;
+import sqlplus.convert.LogicalPlanConverter;
+import sqlplus.convert.RunResult;
+import sqlplus.expression.VariableManager;
+import sqlplus.parser.SqlPlusParser;
+import sqlplus.plan.SqlPlusPlanner;
 
 import java.io.File;
 
@@ -38,40 +37,9 @@ public class CliFrontend {
     }
 
     public static void main(String[] args) throws Exception {
-        long t1 = System.currentTimeMillis();
-
-        {
-            String ddl = "CREATE TABLE Dummy\n" +
-                    "(\n" +
-                    "    aa INT,\n" +
-                    "    bb INT,\n" +
-                    "    cc INT,\n" +
-                    "    dd DECIMAL\n" +
-                    ")";
-
-            String dml = "SELECT A.aa, A.bb, A.cc, B.aa, B.bb, B.cc, A.dd + B.dd AS ddd\n" +
-                    "FROM Dummy A,\n" +
-                    "     Dummy B\n" +
-                    "WHERE A.bb = B.aa\n" +
-                    "ORDER BY ddd DESC limit 100";
-
-            SqlNodeList nodeList = SqlPlusParser.parseDdl(ddl);
-            CatalogManager catalogManager = new CatalogManager();
-            catalogManager.register(nodeList);
-            SqlNode sqlNode = SqlPlusParser.parseDml(dml);
-            SqlPlusPlanner sqlPlusPlanner = new SqlPlusPlanner(catalogManager);
-            RelNode logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode);
-            VariableManager variableManager = new VariableManager();
-            LogicalPlanConverter converter = new LogicalPlanConverter(variableManager);
-            converter.convert(logicalPlan);
-        }
-
-        long t2 = System.currentTimeMillis();
-        System.out.println(t2-t1);
-
         DefaultParser cliParser = new DefaultParser();
         CommandLine commandLine = cliParser.parse(CliFrontendOptions.getOptions(), args, true);
-        String outputPath = commandLine.getOptionValue(CliFrontendOptions.OUTPUT_OPTION.getOpt());
+
         if (commandLine.hasOption(CliFrontendOptions.HELP_OPTION.getOpt())) {
             printHelpMessage();
         } else {
@@ -87,6 +55,7 @@ public class CliFrontend {
                 printHelpMessage();
                 return;
             }
+            String outputPath = commandLine.getOptionValue(CliFrontendOptions.OUTPUT_OPTION.getOpt());
 
             String packageName = commandLine.hasOption(CliFrontendOptions.PACKAGE_NAME_OPTION.getOpt()) ?
                     commandLine.getOptionValue(CliFrontendOptions.PACKAGE_NAME_OPTION.getOpt()) :
@@ -112,9 +81,15 @@ public class CliFrontend {
 
             VariableManager variableManager = new VariableManager();
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager);
-            converter.convert2(logicalPlan, outputPath);
+            RunResult runResult = converter.runAndSelect(logicalPlan, "degree", false, 1);
+
+            SqlPlusCompiler sqlPlusCompiler = new SqlPlusCompiler(variableManager);
+            CompileResult compileResult = sqlPlusCompiler.compile(catalogManager, runResult, true);
+            CodeGenerator codeGenerator = new SparkSQLPlusExampleCodeGenerator(compileResult, packageName, objectName);
+            StringBuilder builder = new StringBuilder();
+            codeGenerator.generate(builder);
+
+            FileUtils.writeStringToFile(new File(outputPath), builder.toString());
         }
-        long t3 = System.currentTimeMillis();
-        System.out.println(t3-t2);
     }
 }

@@ -45,9 +45,13 @@ class TableAggRelation(val tableName: String, var variables: List[Variable], val
     res
   }
 
+  def getAggId: String = {
+    getAggRelation().map(r => r.getRelationId()).mkString(",")
+  }
+
   override def toString: String = {
     val columns = variables.map(n => n.name + ":" + n.dataType).mkString("(", ",", ")")
-    val aggId = getAggRelation.map(r => r.getRelationId()).mkString(",")
+    val aggId = getAggId
     s"TableAggRelation;id=${getRelationId()};source=$tableName;cols=$columns;tableDisplayName=$tableDisplayName;AggList=$aggId\n${concatInside}"
   }
 
