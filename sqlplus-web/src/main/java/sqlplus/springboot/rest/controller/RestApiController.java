@@ -115,7 +115,7 @@ public class RestApiController {
         result.setNodes(nodes);
 
         List<JoinTreeEdge> edges = joinTreeEdges.stream()
-                .map(e -> new JoinTreeEdge(e.getSrc().getRelationId(), e.getDst().getRelationId(), getJoinTreeKeyProperty(e.getSrc(), e.getDst())))
+                .map(e -> new JoinTreeEdge(e.getSrc().getRelationId(), e.getDst().getRelationId(), e.keyType().toString()))
                 .collect(Collectors.toList());
         result.setEdges(edges);
 
@@ -131,7 +131,7 @@ public class RestApiController {
             String opName = c.op().getFuncName();
             String op = c.op().toString();
             List<JoinTreeEdge> path = JavaConverters.setAsJavaSet(c.getNodes()).stream()
-                    .map(e -> new JoinTreeEdge(e.getSrc().getRelationId(), e.getDst().getRelationId(), getJoinTreeKeyProperty(e.getSrc(), e.getDst())))
+                    .map(e -> new JoinTreeEdge(e.getSrc().getRelationId(), e.getDst().getRelationId(), e.keyType().toString()))
                     .collect(Collectors.toList());
             return new Comparison(opName, path, c.left().format(), c.right().format(), cond, op);
         }).collect(Collectors.toList());
@@ -143,26 +143,5 @@ public class RestApiController {
         result.setExtraEqualConditions(extraEqualConditions);
 
         return result;
-    }
-
-    private String getJoinTreeKeyProperty(Relation parent, Relation child) {
-        Set<Variable> variables1 = JavaConverters.setAsJavaSet(parent.getNodes());
-        Set<Variable> primaryKey1 = JavaConverters.setAsJavaSet(parent.getPrimaryKeys());
-        Set<Variable> variables2 = JavaConverters.setAsJavaSet(child.getNodes());
-        Set<Variable> primaryKey2 = JavaConverters.setAsJavaSet(child.getPrimaryKeys());
-        Set<Variable> joinKey = variables1.stream().filter(variables2::contains).collect(Collectors.toSet());
-
-        boolean joinKeyContainsPk1 = joinKey.containsAll(primaryKey1);
-        boolean joinKeyContainsPk2 = joinKey.containsAll(primaryKey2);
-
-        if (joinKeyContainsPk1 && joinKeyContainsPk2) {
-            return "both";
-        } else if (joinKeyContainsPk1) {
-            return "parent";
-        } else if (joinKeyContainsPk2) {
-            return "child";
-        } else {
-            return "none";
-        }
     }
 }
