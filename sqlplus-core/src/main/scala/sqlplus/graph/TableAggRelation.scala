@@ -3,7 +3,7 @@ package sqlplus.graph
 import sqlplus.expression.Variable
 import scala.collection.mutable.ListBuffer
 
-class TableAggRelation(val tableName: String, var variables: List[Variable], val tableDisplayName: String, var aggRelation: List[AggregatedRelation]) extends Relation {
+class TableAggRelation(val tableName: String, var variables: List[Variable], val tableDisplayName: String, var aggRelation: List[AggregatedRelation], val primaryKeys: Set[Variable]) extends Relation {
   def getTableName(): String = tableName
 
   def getAggRelation(): List[AggregatedRelation] = aggRelation
@@ -56,6 +56,13 @@ class TableAggRelation(val tableName: String, var variables: List[Variable], val
   }
 
   override def getTableDisplayName(): String = tableDisplayName
+
+  override def getPrimaryKeys(): Set[Variable] = primaryKeys
+
+  override def replaceVariables(map: Map[Variable, Variable]): Relation = {
+    val newVariables = variables.map(v => if (map.contains(v)) map(v) else v)
+    new TableAggRelation(tableName, newVariables, tableDisplayName, aggRelation, primaryKeys)
+  }
 
   // Must call
   initVariableList()
