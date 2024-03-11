@@ -5,7 +5,7 @@ logging:
   config: classpath:log4j2-spring.xml
 
 sqlplus:
-  home: /Users/chenbingnan/Desktop/SparkSQLPlus
+  home: /Users/cbn/Desktop/SparkSQLPlus
 
 experiment:
   mode: local
