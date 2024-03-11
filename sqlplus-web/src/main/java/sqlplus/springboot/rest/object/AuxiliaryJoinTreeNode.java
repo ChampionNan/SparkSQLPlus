@@ -10,11 +10,23 @@ import java.util.stream.Collectors;
 public class AuxiliaryJoinTreeNode extends JoinTreeNode {
     int support;
     List<String> columns;
+    String alias;
+    String source;
 
     public AuxiliaryJoinTreeNode(AuxiliaryRelation relation) {
         super(relation.getRelationId(), "AuxiliaryRelation", relation.getTableDisplayName());
         this.support = relation.supportingRelation().getRelationId();
         this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
+        this.alias = relation.tableDisplayName();
+        this.source = relation.supportingRelation().getTableDisplayName();
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
     }
 
     public int getSupport() {

@@ -106,6 +106,8 @@ public class RestApiController {
                 return new AuxiliaryJoinTreeNode((AuxiliaryRelation) r);
             } else if (r instanceof AggregatedRelation) {
                 return new AggregatedJoinTreeNode((AggregatedRelation) r);
+            } else if (r instanceof TableAggRelation) {
+                return new TableAggJoinTreeNode((TableAggRelation) r);
             } else {
                 return new BagJoinTreeNode((BagRelation) r);
             }
@@ -125,11 +127,13 @@ public class RestApiController {
         result.setMaxFanout(joinTree.getMaxFanout());
 
         List<Comparison> comparisons = JavaConverters.setAsJavaSet(comparisonHyperGraph.getEdges()).stream().map(c -> {
-            String op = c.op().getFuncName();
+            String cond = c.getCond();
+            String opName = c.op().getFuncName();
+            String op = c.op().toString();
             List<JoinTreeEdge> path = JavaConverters.setAsJavaSet(c.getNodes()).stream()
                     .map(e -> new JoinTreeEdge(e.getSrc().getRelationId(), e.getDst().getRelationId(), e.keyType().toString()))
                     .collect(Collectors.toList());
-            return new Comparison(op, path, c.left().format(), c.right().format());
+            return new Comparison(opName, path, c.left().format(), c.right().format(), cond, op);
         }).collect(Collectors.toList());
         result.setComparisons(comparisons);
 

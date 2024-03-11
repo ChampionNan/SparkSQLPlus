@@ -15,10 +15,24 @@ class BagRelation(bag: Set[Relation]) extends Relation {
 
     def getInternalRelations: List[Relation] = inside
 
+    def getInId: String = {
+        inside.map(r => r.getRelationId()).mkString(",")
+    }
+
+    def concatInside: String = {
+        var res = ""
+        inside.foreach(rel => {
+            res += rel.toString
+        })
+        res
+    }
+
     override def toString: String = {
         val internal = inside.map(r => r.getTableDisplayName()).mkString(",")
+        val inId = getInId
         val columns = variableList.map(n => n.name + ":" + n.dataType).mkString("(", ",", ")")
-        s"BagRelation[id=${getRelationId()}][internal=$internal][cols=$columns]"
+        val tableDisplayName = getTableDisplayName()
+        s"BagRelation;id=${getRelationId()};inAlias=$internal;cols=$columns;tableDisplayName=$tableDisplayName;internalRelations=$inId\n${concatInside}"
     }
 
     override def getPrimaryKeys(): Set[Variable] = Set.empty

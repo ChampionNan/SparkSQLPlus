@@ -16,7 +16,7 @@ class JoinTreeEdge(val node1: Relation, val node2: Relation) extends Edge[Relati
     lazy val keyType: KeyType = computeKeyType()
 
     override def toString: String =
-        "JoinTreeEdge(" + node1.toString + "->" + node2.toString + ")"
+        node1.toString + "->" + node2.toString
 
     override def hashCode(): Int = node1.## ^ node2.##
 

@@ -2,11 +2,16 @@ package sqlplus.graph
 
 import sqlplus.expression.Variable
 
+// import scala.collection.mutable
+// import scala.collection.mutable.Set
+
 /**
  * A relation is a hyperEdge whose nodes are variables.
  */
 abstract class Relation extends HyperEdge[Variable] {
-    val relationId = Relation.getNewRelationId()
+    val relationId: Int = Relation.getNewRelationId()
+
+    // val allWriteRels: mutable.Set[Int] = mutable.Set()
 
     final def getRelationId(): Int = relationId
 

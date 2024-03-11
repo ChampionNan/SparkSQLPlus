@@ -10,11 +10,13 @@ import java.util.stream.Collectors;
 public class TableScanJoinTreeNode extends JoinTreeNode {
     String source;
     List<String> columns;
+    String alias;
 
     public TableScanJoinTreeNode(TableScanRelation relation) {
         super(relation.getRelationId(), "TableScanRelation", relation.getTableDisplayName());
         this.source = relation.getTableName();
         this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
+        this.alias = relation.tableDisplayName();
     }
 
     public String getSource() {

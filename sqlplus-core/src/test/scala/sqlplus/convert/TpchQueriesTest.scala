@@ -612,7 +612,7 @@ class TpchQueriesTest {
             """
               |CREATE TABLE view1
               |(
-              |    supplier_no   INTEGER,
+              |    l_suppkey   INTEGER,
               |    total_revenue DECIMAL
               |);
               |""".stripMargin
@@ -639,7 +639,7 @@ class TpchQueriesTest {
               |FROM supplier,
               |     view1,
               |     view2
-              |WHERE s_suppkey = supplier_no
+              |WHERE s_suppkey = l_suppkey
               |  AND total_revenue = v2_total_revenue_max
               |""".stripMargin
 

@@ -9,7 +9,7 @@ class AuxiliaryRelation(val tableName: String, val variables: List[Variable], va
 
     override def toString: String = {
         val columns = variables.map(n => n.name + ":" + n.dataType).mkString("(", ",", ")")
-        s"AuxiliaryRelation[id=${getRelationId()}][source=$tableName][cols=$columns]"
+        s"AuxiliaryRelation;id=${getRelationId()};source=${supportingRelation.getTableDisplayName()};cols=$columns;tableDisplayName=$tableDisplayName;supportingRelation=${supportingRelation.getRelationId}\n${supportingRelation}"
     }
 
     override def getTableDisplayName(): String = tableDisplayName
@@ -27,8 +27,8 @@ object AuxiliaryRelation {
      * @return a new AuxiliaryRelation
      */
     def createFrom(supportingRelation: Relation, remainVariables: List[Variable]): AuxiliaryRelation = {
-        val name = s"[${supportingRelation.getTableName()}]"
-        val displayName = s"[${supportingRelation.getTableDisplayName()}]"
+        val name = s"${supportingRelation.getTableName()}"
+        val displayName = s"${supportingRelation.getTableDisplayName()}Aux${scala.util.Random.nextInt(100).toString}"
         assert(remainVariables.forall(v => supportingRelation.getNodes().contains(v)))
         val primaryKeys: Set[Variable] = if (supportingRelation.getPrimaryKeys().subsetOf(remainVariables.toSet)) supportingRelation.getPrimaryKeys() else Set.empty
         new AuxiliaryRelation(name, remainVariables, supportingRelation, displayName, primaryKeys)

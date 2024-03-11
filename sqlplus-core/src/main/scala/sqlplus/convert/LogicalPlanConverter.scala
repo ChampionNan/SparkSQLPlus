@@ -8,12 +8,13 @@ import org.apache.calcite.util.{NlsString, Sarg}
 import sqlplus.catalog.CatalogManager
 import sqlplus.expression._
 import sqlplus.ghd.GhdAlgorithm
-import sqlplus.graph._
+import sqlplus.graph.{AggregatedRelation, _}
 import sqlplus.gyo.GyoAlgorithm
 import sqlplus.plan.table.SqlPlusTable
 import sqlplus.types._
 import sqlplus.utils.DisjointSet
 
+import java.io._
 import java.util.GregorianCalendar
 import scala.collection.JavaConversions._
 import scala.collection.mutable
@@ -28,9 +29,54 @@ class LogicalPlanConverter(val variableManager: VariableManager, val catalogMana
     val gyo: GyoAlgorithm = new GyoAlgorithm
     val ghd: GhdAlgorithm = new GhdAlgorithm
 
+    // TODO: Only support agg with tableScan
+    def removeAggRelation(relations: List[Relation]): List[Relation] = {
+        val aggRelations = relations.filter({
+            case r: AggregatedRelation => true
+            case _ => false
+        }).to[ListBuffer]
+        // No need to do the modification
+        if (aggRelations.isEmpty) {
+            relations
+        }
+        val tableRelations = relations.filter({
+            case r: TableScanRelation => true
+            case _ => false
+        }).to[ListBuffer]
+        val otherRelations = relations.filter({
+            case r: AggregatedRelation => false
+            case s: TableScanRelation => false
+            case _ => true
+        })
+        var newTableAggRelation: ListBuffer[TableAggRelation] = ListBuffer()
+
+
+        for (table <- tableRelations; agg <- aggRelations; if table.getVariableList().intersect(agg.getVariableList()).nonEmpty && !table.asInstanceOf[TableScanRelation].aggAttachAlready) {
+            table.asInstanceOf[TableScanRelation].addAgg(agg.asInstanceOf[AggregatedRelation])
+            table.asInstanceOf[TableScanRelation].aggAttachAlready = true
+            aggRelations -= agg
+        }
+
+        for (table <- tableRelations; agg <- aggRelations; if table.getVariableList().intersect(agg.getVariableList()).nonEmpty) {
+            table.asInstanceOf[TableScanRelation].addAgg(agg.asInstanceOf[AggregatedRelation])
+            aggRelations -= agg
+        }
+
+        for (table <- tableRelations; if table.asInstanceOf[TableScanRelation].getAggList.nonEmpty) {
+            var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), table.asInstanceOf[TableScanRelation].getAggList, table.getPrimaryKeys())
+            newAggTable.initVariableList()
+            newTableAggRelation += newAggTable
+            tableRelations -= table
+        }
+
+        var retList: List[Relation] = otherRelations ::: newTableAggRelation.toList ::: tableRelations.toList
+        retList
+    }
+
+
     def run(root: RelNode): RunResult = {
         val context = traverseLogicalPlan(root)
-        val relations = context.relations
+        val relations = removeAggRelation(context.relations)
         val conditions = context.conditions
         val outputVariables = context.outputVariables
         val requiredVariables = context.requiredVariables
@@ -130,6 +176,7 @@ class LogicalPlanConverter(val variableManager: VariableManager, val catalogMana
         zippedWithDegree.filter(t => t._4 == minDegree).take(limit).map(t => (t._1, t._2, t._3))
     }
 
+
     def runAndSelect(root: RelNode, orderBy: String = "degree", desc: Boolean = true, limit: Int = 1): RunResult = {
         val runResult = run(root)
 
@@ -155,6 +202,7 @@ class LogicalPlanConverter(val variableManager: VariableManager, val catalogMana
         RunResult(selected, runResult.outputVariables, runResult.computations, runResult.isFull, runResult.isFreeConnex,
             runResult.groupByVariables, runResult.aggregations, runResult.optTopK)
     }
+
 
     def traverseLogicalPlan(node: RelNode): Context = {
         node match {

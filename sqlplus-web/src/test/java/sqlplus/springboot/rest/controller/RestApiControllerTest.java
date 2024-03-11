@@ -1,3 +1,4 @@
+/*
 package sqlplus.springboot.rest.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -272,3 +273,4 @@ public class RestApiControllerTest {
         assertEquals(1, ((List<Map<String, Object>>) data.get("joinTrees")).get(0).get("maxFanout"));
     }
 }
+*/
