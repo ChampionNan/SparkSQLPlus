@@ -13,21 +13,12 @@ public class Comparison {
     public Comparison() {
     }
 
-    public Comparison(String opName, List<JoinTreeEdge> path, String left, String right, String cond, String op) {
-        this.opName = opName;
+    public Comparison(String op, List<JoinTreeEdge> path, String left, String right, String cond) {
+        this.op = op;
         this.path = path;
         this.left = left;
         this.right = right;
         this.cond = cond;
-        this.op = op;
-    }
-
-    public String getOpName() {
-        return opName;
-    }
-
-    public void setOpName(String opName) {
-        this.opName = opName;
     }
 
     public String getOp() {
