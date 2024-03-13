@@ -1,5 +1,6 @@
 package sqlplus.expression
 
+import sqlplus.convert.Condition
 import sqlplus.types.{DataType, DataTypeCasting, DateDataType, DoubleDataType, IntDataType, LongDataType, StringDataType, TimestampDataType}
 
 import scala.reflect.runtime.universe.{TypeTag, typeOf}
@@ -37,6 +38,14 @@ object Operator {
                 selectNumericGreaterThanImplementation(left.getType(), right.getType())
             case ">=" if (DataType.isNumericType(left.getType()) && DataType.isNumericType(right.getType())) =>
                 selectNumericGreaterThanOrEqualToImplementation(left.getType(), right.getType())
+            case "<" if (left.getType() == StringDataType && right.getType() == StringDataType) =>
+                StringLessThan
+            case "<=" if (left.getType() == StringDataType && right.getType() == StringDataType) =>
+                StringLessThanOrEqualTo
+            case ">" if (left.getType() == StringDataType && right.getType() == StringDataType) =>
+                StringGreaterThan
+            case ">=" if (left.getType() == StringDataType && right.getType() == StringDataType) =>
+                StringGreaterThanOrEqualTo
             case "<" if (left.getType() == TimestampDataType && right.getType() == TimestampDataType) =>
                 LongLessThan
             case "<=" if (left.getType() == TimestampDataType && right.getType() == TimestampDataType) =>
@@ -293,4 +302,29 @@ object UnaryOperatorSuffix {
         suffix += 1
         result
     }
+}
+
+class StringBinaryOperator(relationalOperator: String) extends BinaryOperator {
+    override def leftTypeName: String = "String"
+    override def rightTypeName: String = "String"
+    override def getFuncName(): String = throw new UnsupportedOperationException()
+    override def getFuncDefinition(): List[String] = throw new UnsupportedOperationException()
+    override def getFuncLiteral(isReverse: Boolean): String = throw new UnsupportedOperationException()
+    override def isNegated(): Boolean = false
+
+    override def format(expressions: List[Expression]): String = s"(${expressions(0).format()} ${relationalOperator} ${expressions(1).format()})"
+}
+
+case object StringLessThan extends StringBinaryOperator("<")
+case object StringLessThanOrEqualTo extends StringBinaryOperator("<=")
+case object StringGreaterThan extends StringBinaryOperator(">")
+case object StringGreaterThanOrEqualTo extends StringBinaryOperator(">=")
+
+case class OrOperator(conditions: List[Condition]) extends Operator {
+    override def getFuncName(): String = throw new UnsupportedOperationException()
+    override def getFuncDefinition(): List[String] = throw new UnsupportedOperationException()
+    override def getFuncLiteral(isReverse: Boolean): String = throw new UnsupportedOperationException()
+    override def isNegated(): Boolean = false
+
+    override def format(expressions: List[Expression]): String = conditions.map(c => c.toString).mkString("(", " OR ", ")")
 }
