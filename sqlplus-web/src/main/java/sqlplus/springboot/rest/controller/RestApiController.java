@@ -33,7 +33,8 @@ public class RestApiController {
     @PostMapping("/parse")
     public Result parseQuery(@RequestBody ParseQueryRequest request,
                              @RequestParam Optional<String> orderBy, @RequestParam Optional<Boolean> desc, @RequestParam Optional<Integer> limit,
-                             @RequestParam Optional<Boolean> sample, @RequestParam Optional<Integer> sampleSize) {
+
+                             @RequestParam Optional<Boolean> fixRootEnable) {
         try {
             SqlNodeList nodeList = SqlPlusParser.parseDdl(request.getDdl());
             CatalogManager catalogManager = new CatalogManager();
@@ -47,17 +48,7 @@ public class RestApiController {
             VariableManager variableManager = new VariableManager();
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager, catalogManager);
 
-            RunResult runResult = null;
-            if (sample.isPresent() && sample.get()) {
-                // first compute all the plans
-                runResult = converter.runAndSelect(logicalPlan, orderBy.orElse(""), desc.orElse(false), Integer.MAX_VALUE);
-                // sample from the previous result
-                int limitValue = limit.orElse(Integer.MAX_VALUE);
-                int sampleSizeValue = sampleSize.orElse(limitValue);
-                runResult = RunResult.sample(runResult, limitValue, sampleSizeValue);
-            } else {
-                runResult = converter.runAndSelect(logicalPlan, orderBy.orElse(""), desc.orElse(false), limit.orElse(Integer.MAX_VALUE));
-            }
+            RunResult runResult = converter.runAndSelect(logicalPlan, orderBy.orElse(""), desc.orElse(false), limit.orElse(Integer.MAX_VALUE), fixRootEnable.orElse(false));
 
             ParseQueryResponse response = new ParseQueryResponse();
             response.setTables(tables.stream()
@@ -154,6 +145,8 @@ public class RestApiController {
                 .map(Object::toString)
                 .collect(Collectors.toList());
         result.setExtraConditions(extraConditions);
+
+        result.setFixRoot(joinTree.isFixRoot());
 
         return result;
     }
