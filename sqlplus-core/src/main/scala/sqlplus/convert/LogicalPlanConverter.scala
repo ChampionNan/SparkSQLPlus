@@ -63,7 +63,7 @@ class LogicalPlanConverter(val variableManager: VariableManager, val catalogMana
         }
 
         for (table <- tableRelations; if table.asInstanceOf[TableScanRelation].getAggList.nonEmpty) {
-            var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), table.asInstanceOf[TableScanRelation].getAggList, table.getPrimaryKeys())
+            var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), table.asInstanceOf[TableScanRelation].getAggList, table.getPrimaryKeys(), table.getCardinality())
             newAggTable.initVariableList()
             newTableAggRelation += newAggTable
             tableRelations -= table
@@ -343,14 +343,8 @@ class LogicalPlanConverter(val variableManager: VariableManager, val catalogMana
         zippedWithDegree.filter(t => t._4 == minDegree).take(limit).map(t => (t._1, t._2, t._3))
     }
 
-<<<<<<< HEAD
-
-    def runAndSelect(root: RelNode, orderBy: String = "degree", desc: Boolean = true, limit: Int = 1): RunResult = {
-        val runResult = run(root)
-=======
     def runAndSelect(root: RelNode, orderBy: String = "degree", desc: Boolean = true, limit: Int = 1, fixRootEnable: Boolean): RunResult = {
         val runResult = run(root, fixRootEnable)
->>>>>>> parser
 
         val selected = orderBy match {
             case "degree" if !desc =>
