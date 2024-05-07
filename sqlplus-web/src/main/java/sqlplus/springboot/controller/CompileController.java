@@ -18,8 +18,11 @@ import sqlplus.codegen.SparkSQLPlusExampleCodeGenerator;
 import sqlplus.codegen.SparkSQLPlusExperimentCodeGenerator;
 import sqlplus.compile.CompileResult;
 import sqlplus.compile.SqlPlusCompiler;
-import sqlplus.convert.ConvertResult;
+import sqlplus.convert.ExtraCondition;
 import sqlplus.convert.LogicalPlanConverter;
+import sqlplus.convert.RunResult;
+import sqlplus.convert.TopK;
+import sqlplus.expression.Expression;
 import sqlplus.expression.Variable;
 import sqlplus.expression.VariableManager;
 import sqlplus.graph.*;
@@ -40,7 +43,19 @@ import java.util.stream.Collectors;
 public class CompileController {
     private scala.collection.immutable.List<Variable> outputVariables = null;
 
-    private List<Tuple2<JoinTree, ComparisonHyperGraph>> candidates = null;
+    private scala.collection.immutable.List<Tuple2<Variable, Expression>> computations = null;
+
+    private boolean isFull = false;
+
+    private boolean isFreeConnex = false;
+
+    private scala.collection.immutable.List<Variable> groupByVariables = null;
+
+    private scala.collection.immutable.List<Tuple3<Variable, String, scala.collection.immutable.List<Expression>>> aggregations = null;
+
+    private scala.Option<TopK> optTopK = null;
+
+    private List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates = null;
 
     private CatalogManager catalogManager = null;
 
@@ -52,8 +67,6 @@ public class CompileController {
 
     private CompileResult compileResult = null;
 
-    private boolean isFullQuery = true;
-
     @PostMapping("/compile/submit")
     public Result submit(@RequestBody CompileSubmitRequest request) {
         try {
@@ -64,22 +77,26 @@ public class CompileController {
             SqlNode sqlNode = SqlPlusParser.parseDml(request.getQuery());
             sql = request.getQuery();
 
-            SqlPlusPlanner crownPlanner = new SqlPlusPlanner(catalogManager);
-            RelNode logicalPlan = crownPlanner.toLogicalPlan(sqlNode);
+            SqlPlusPlanner sqlPlusPlanner = new SqlPlusPlanner(catalogManager);
+            RelNode logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode);
 
             variableManager = new VariableManager();
-            LogicalPlanConverter converter = new LogicalPlanConverter(variableManager);
-            Tuple3<scala.collection.immutable.List<Tuple2<JoinTree, ComparisonHyperGraph>>,
-                                scala.collection.immutable.List<Variable>, String> runResult = converter.run(logicalPlan);
-            outputVariables = runResult._2();
-            isFullQuery = runResult._3().equalsIgnoreCase("full");
-            if (!isFullQuery) {
+            LogicalPlanConverter converter = new LogicalPlanConverter(variableManager, catalogManager);
+            RunResult runResult = converter.run(logicalPlan, null, false, false);
+            outputVariables = runResult.outputVariables();
+            computations = runResult.computations();
+            isFull = runResult.isFull();
+            isFreeConnex = runResult.isFreeConnex();
+            groupByVariables = runResult.groupByVariables();
+            aggregations = runResult.aggregations();
+            optTopK = runResult.optTopK();
+
+            if (!isFull) {
                 // is the query is non-full, we add DISTINCT keyword to SparkSQL explicitly
                 sql = sql.replaceFirst("[s|S][e|E][l|L][e|E][c|C][t|T]", "SELECT DISTINCT");
             }
 
-            candidates = scala.collection.JavaConverters.seqAsJavaList(
-                    converter.candidatesWithLimit(runResult._1(), 4));
+            candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(runResult.candidates(), 4));
             return mkSubmitResult(candidates);
         } catch (SqlParseException e) {
             throw new RuntimeException(e);
@@ -97,13 +114,13 @@ public class CompileController {
         tables = scala.collection.JavaConverters.asScalaBuffer(sourceTables).toList();
     }
 
-    private Result mkSubmitResult(List<Tuple2<JoinTree, ComparisonHyperGraph>> candidates) {
+    private Result mkSubmitResult(List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates) {
         Result result = new Result();
         result.setCode(200);
         CompileSubmitResponse response = new CompileSubmitResponse();
         response.setCandidates(candidates.stream().map(tuple -> {
             Candidate candidate = new Candidate();
-            List<Relation> relations = extractRelations(tuple._1);
+            List<Relation> relations = extractRelations(tuple._1());
             List<BagRelation> bagRelations = relations.stream().filter(r -> r instanceof BagRelation).map(r -> (BagRelation)r).collect(Collectors.toList());
             // assign new name to bag relations
             Map<String, String> bagRelationNames = new HashMap<>();
@@ -113,8 +130,8 @@ public class CompileController {
                 suffix += 1;
             }
 
-            Tree tree = Tree.fromJoinTree(tuple._1, bagRelationNames);
-            Set<JoinTreeEdge> joinTreeEdges = scala.collection.JavaConverters.setAsJavaSet(tuple._1.getEdges());
+            Tree tree = Tree.fromJoinTree(tuple._1(), bagRelationNames);
+            Set<JoinTreeEdge> joinTreeEdges = scala.collection.JavaConverters.setAsJavaSet(tuple._1().getEdges());
             List<String> joinTreeEdgeStrings = new ArrayList<>();
             Map<JoinTreeEdge, String> joinTreeEdgeToStringMap = new HashMap<>();
 
@@ -124,7 +141,7 @@ public class CompileController {
                 joinTreeEdgeToStringMap.put(e, s);
             });
             List<String> sortedEdgeStrings = joinTreeEdgeStrings.stream().sorted().collect(Collectors.toList());
-            HyperGraph hyperGraph = HyperGraph.fromComparisonHyperGraphAndRelations(tuple._2, sortedEdgeStrings, joinTreeEdgeToStringMap);
+            HyperGraph hyperGraph = HyperGraph.fromComparisonHyperGraphAndRelations(tuple._2(), sortedEdgeStrings, joinTreeEdgeToStringMap);
 
             Map<String, Object> bags = new HashMap<>();
             bagRelations.forEach(b -> visitBagRelation(b, bagRelationNames, bags));
@@ -204,14 +221,19 @@ public class CompileController {
         Result result = new Result();
         result.setCode(200);
 
-        ConvertResult convertResult = new ConvertResult(
+        RunResult runResult = RunResult.buildFromSingleResult(
+                candidates.get(request.getIndex()),
                 outputVariables,
-                candidates.get(request.getIndex())._1,
-                candidates.get(request.getIndex())._2
+                computations,
+                isFull,
+                isFreeConnex,
+                groupByVariables,
+                aggregations,
+                optTopK
         );
 
         SqlPlusCompiler sqlPlusCompiler = new SqlPlusCompiler(variableManager);
-        compileResult = sqlPlusCompiler.compile(catalogManager, convertResult, false);
+        compileResult = sqlPlusCompiler.compile(catalogManager, runResult, false);
         CodeGenerator codeGenerator = new SparkSQLPlusExampleCodeGenerator(compileResult,
                 "sqlplus.example", "SparkSQLPlusExample");
         StringBuilder builder = new StringBuilder();

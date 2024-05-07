@@ -22,6 +22,12 @@ class BagRelation(bag: Set[Relation]) extends Relation {
         val tableDisplayName = getTableDisplayName()
         s"BagRelation;id=${getRelationId()};inAlias=$internal;inId=$inId;cols=$columns;tableDisplayName=$tableDisplayName;internalRelations=$inside"
     }
+
+    override def getPrimaryKeys(): Set[Variable] = Set.empty
+
+    override def replaceVariables(map: Map[Variable, Variable]): Relation = throw new UnsupportedOperationException()
+
+    override def getCardinality(): Long = 0
 }
 
 object BagRelation {

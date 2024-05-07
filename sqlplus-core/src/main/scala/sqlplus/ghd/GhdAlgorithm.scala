@@ -1,7 +1,7 @@
 package sqlplus.ghd
 
 import sqlplus.expression.Variable
-import sqlplus.graph.{AuxiliaryRelation, BagRelation, JoinTree, JoinTreeEdge, Relation, RelationalHyperGraph}
+import sqlplus.graph._
 
 /**
  * Use brute-force to compute a generalized hypertree decomposition for a given hypergraph.
@@ -61,7 +61,7 @@ class GhdAlgorithm {
                 val childrenResult = visitChildren(node.childrenNode, relation)
                 (relation, childrenResult, keepAuxiliaries,
                     removeAuxiliaries.map(r => new JoinTreeEdge(relation, auxiliaryRelationToConvertedComponent(r)._3))
-                        ++ keepAuxiliaries.map(r => new JoinTreeEdge(r, r.asInstanceOf[AuxiliaryRelation].supportingRelation)))
+                        ++ keepAuxiliaries.map(r => new JoinTreeEdge(relation, auxiliaryRelationToConvertedComponent(r)._3)))
             } else {
                 val relation = if (node.relations.size == 1) node.relations.head else BagRelation.createFrom(node.relations)
                 val childrenResult = visitChildren(node.childrenNode, relation)
@@ -183,7 +183,7 @@ class GhdAlgorithm {
             val combined = auxiliaryRelationToConvertedComponent.values.foldLeft((convertResult._1, convertResult._2))((z, t) => {
                 (z._1 ++ t._1, z._2 ++ t._2)
             })
-            val joinTree = new JoinTree(convertResult._3, combined._1, convertResult._2)
+            val joinTree = JoinTree(convertResult._3, combined._1, convertResult._2, false)
             val hypergraph = combined._2.foldLeft(RelationalHyperGraph.EMPTY)((z, e) => z.addHyperEdge(e))
             (joinTree, hypergraph)
         })
