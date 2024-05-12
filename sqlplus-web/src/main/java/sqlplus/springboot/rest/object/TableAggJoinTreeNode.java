@@ -14,8 +14,8 @@ public class TableAggJoinTreeNode extends JoinTreeNode {
 	String alias;
 	String aggList;
 
-	public TableAggJoinTreeNode(TableAggRelation relation) {
-		super(relation.getRelationId(), "TableAggRelation", relation.getTableDisplayName());
+	public TableAggJoinTreeNode(TableAggRelation relation, List<String> reserve) {
+		super(relation.getRelationId(), "TableAggRelation", relation.getTableDisplayName(), reserve);
 		this.source = relation.getTableName();
 		this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
 		this.alias = relation.tableDisplayName();
