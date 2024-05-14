@@ -1,5 +1,9 @@
 package sqlplus.graph
 
+import sqlplus.expression.Variable
+
+import scala.collection.mutable
+
 /**
  * A joinTree is a set of JoinTreeEdge and a root relation.
  *
@@ -35,6 +39,59 @@ class JoinTree(val root: Relation, val edges: Set[JoinTreeEdge], val subset: Set
 object JoinTree {
     def apply(root: Relation, edges: Set[JoinTreeEdge], subset: Set[Relation], isFixRoot: Boolean): JoinTree = {
         new JoinTree(root, edges, subset, isFixRoot)
+    }
+
+    def computeReserveVariables(joinTree: JoinTree): Map[Relation, List[String]] = {
+        val mergedFromTop = mutable.HashMap.empty[Relation, Set[Variable]]
+        val mergedFromBottom = mutable.HashMap.empty[Relation, Set[Variable]]
+        val reserve = mutable.HashMap.empty[Relation, Set[Variable]]
+        val children = joinTree.getEdges().groupBy(e => e.getSrc).map(t => (t._1, t._2.map(e => e.getDst)))
+
+        def f(relation: Relation, parent: Relation): Unit = {
+            if (parent == null) {
+                mergedFromTop(relation) = relation.getNodes()
+            } else {
+                mergedFromTop(relation) = relation.getNodes().union(mergedFromTop(parent))
+            }
+
+            if (children.contains(relation)) {
+                children(relation).foreach(c => f(c, relation))
+            }
+        }
+        f(joinTree.root, null)
+
+        def g(relation: Relation, parent: Relation): Unit = {
+            mergedFromBottom(relation) = relation.getNodes()
+
+            if (children.contains(relation)) {
+                children(relation).foreach(c => g(c, relation))
+            }
+
+            if (parent != null) {
+                mergedFromBottom(parent) = mergedFromBottom(parent).union(mergedFromBottom(relation))
+            }
+        }
+        g(joinTree.root, null)
+
+        def h(relation: Relation): Unit = {
+            if (children.contains(relation)) {
+                children(relation).foreach(c => h(c))
+            }
+
+            if (children.contains(relation)) {
+                children(relation).foreach(c => {
+                    val tmp = mutable.HashSet.empty[Variable]
+                    children(relation).filter(r => r != c).foreach(r => mergedFromBottom(r).foreach(v => tmp.add(v)))
+                    mergedFromTop(relation).foreach(v => tmp.add(v))
+
+                    reserve(c) = mergedFromBottom(c).intersect(tmp)
+                })
+            }
+        }
+        h(joinTree.root)
+        reserve(joinTree.root) = Set.empty
+
+        reserve.map(t => (t._1, t._2.toList.map(v => v.name))).toMap
     }
 }
 
