@@ -14,8 +14,8 @@ public class BagJoinTreeNode extends JoinTreeNode {
     String alias;
     String internalRelations;
 
-    public BagJoinTreeNode(BagRelation relation, List<String> reserve) {
-        super(relation.getRelationId(), "BagRelation", relation.getTableDisplayName(), reserve);
+    public BagJoinTreeNode(BagRelation relation, List<String> reserve, List<Integer> hintJoinOrder) {
+        super(relation.getRelationId(), "BagRelation", relation.getTableDisplayName(), reserve, hintJoinOrder);
         this.internal = JavaConverters.seqAsJavaList(relation.getInternalRelations()).stream().map(Relation::getTableDisplayName).collect(Collectors.toList());
         this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
         this.alias = relation.getTableDisplayName();
