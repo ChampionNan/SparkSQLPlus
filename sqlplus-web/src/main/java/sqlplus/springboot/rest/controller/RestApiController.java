@@ -155,6 +155,8 @@ public class RestApiController {
                 nodes.add(new AuxiliaryJoinTreeNode((AuxiliaryRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
             } else if (r instanceof AggregatedRelation) {
                 nodes.add(new AggregatedJoinTreeNode((AggregatedRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            } else if (r instanceof TableAggRelation) {
+                nodes.add(new TableAggJoinTreeNode((TableAggRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
             } else {
                 nodes.add(new BagJoinTreeNode((BagRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
             }
