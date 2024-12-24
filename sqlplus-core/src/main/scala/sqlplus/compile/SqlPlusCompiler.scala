@@ -4,7 +4,7 @@ import sqlplus.expression.VariableOrdering._
 import sqlplus.catalog.CatalogManager
 import sqlplus.convert.RunResult
 import sqlplus.expression.{BinaryOperator, ComputeExpression, Expression, LiteralExpression, Operator, SingleVariableExpression, UnaryOperator, Variable, VariableManager}
-import sqlplus.graph.{AggregatedRelation, AuxiliaryRelation, BagRelation, Comparison, Relation, TableScanRelation}
+import sqlplus.graph.{AggregatedRelation, AuxiliaryRelation, BagRelation, Comparison, Relation, TableAggRelation, TableScanRelation}
 import sqlplus.plan.table.SqlPlusTable
 import sqlplus.types.{DataType, IntDataType}
 
@@ -222,6 +222,8 @@ class SqlPlusCompiler(val variableManager: VariableManager) {
                 manager.setRawRelation(relation.relationId, manager.getSourceRelation(relation.getTableName()))
             case relation: AggregatedRelation =>
                 // do nothing, AggregatedRelations are already materialized
+            case relation: TableAggRelation =>
+                manager.setRawRelation(relation.relationId, manager.getSourceRelation(relation.getTableName()))
             case _ => throw new UnsupportedOperationException()
         }
     }
@@ -897,6 +899,7 @@ class SqlPlusCompiler(val variableManager: VariableManager) {
             case relation: AuxiliaryRelation => getSourceTableNames(List(relation.supportingRelation))
             case relation: BagRelation => getSourceTableNames(relation.getInternalRelations)
             case relation: TableScanRelation => List(relation.getTableName())
+            case relation: TableAggRelation => List(relation.getTableName()) ++ getSourceTableNames(relation.getAggRelation())
         }
     }
 }

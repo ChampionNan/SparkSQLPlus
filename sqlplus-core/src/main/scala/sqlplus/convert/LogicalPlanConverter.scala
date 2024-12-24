@@ -64,7 +64,7 @@ class LogicalPlanConverter(val variableManager: VariableManager, val catalogMana
         }
 
         for (table <- tableRelations; if table.asInstanceOf[TableScanRelation].getAggList.nonEmpty) {
-            var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), table.asInstanceOf[TableScanRelation].getAggList)
+            var newAggTable = new TableAggRelation(table.getTableName(), table.getVariableList(), table.getTableDisplayName(), table.asInstanceOf[TableScanRelation].getAggList, table.getPrimaryKeys(), table.getCardinality())
             newAggTable.initVariableList()
             newTableAggRelation += newAggTable
             tableRelations -= table
