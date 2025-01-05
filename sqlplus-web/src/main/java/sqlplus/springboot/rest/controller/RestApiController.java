@@ -141,7 +141,7 @@ public class RestApiController {
         return hintJoinOrders;
     }
 
-    private JoinTree buildJoinTree(sqlplus.graph.JoinTree joinTree, ComparisonHyperGraph comparisonHyperGraph, scala.collection.immutable.List<ExtraCondition> extra, HintNode hintNode) {
+    public JoinTree buildJoinTree(sqlplus.graph.JoinTree joinTree, ComparisonHyperGraph comparisonHyperGraph, scala.collection.immutable.List<ExtraCondition> extra, HintNode hintNode) {
         JoinTree result = new JoinTree();
         Set<sqlplus.graph.JoinTreeEdge> joinTreeEdges = JavaConverters.setAsJavaSet(joinTree.edges());
         Set<Relation> relations = new HashSet<>();
@@ -169,6 +169,8 @@ public class RestApiController {
 
             if (r instanceof TableScanRelation) {
                 nodes.add(new TableScanJoinTreeNode((TableScanRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            } else if (r instanceof TableAggRelation) {
+                nodes.add(new TableAggJoinTreeNode((TableAggRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
             } else if (r instanceof AuxiliaryRelation) {
                 nodes.add(new AuxiliaryJoinTreeNode((AuxiliaryRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
             } else if (r instanceof AggregatedRelation) {

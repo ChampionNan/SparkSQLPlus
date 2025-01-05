@@ -8,8 +8,10 @@ import org.apache.commons.io.FileUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
 import scala.Tuple2;
 import scala.Tuple3;
+import scala.collection.JavaConverters;
 import scala.collection.mutable.StringBuilder;
 import sqlplus.catalog.CatalogManager;
 import sqlplus.codegen.CodeGenerator;
@@ -26,18 +28,37 @@ import sqlplus.expression.Expression;
 import sqlplus.expression.Variable;
 import sqlplus.expression.VariableManager;
 import sqlplus.graph.*;
+import sqlplus.graph.JoinTree;
+import sqlplus.graph.JoinTreeEdge;
 import sqlplus.parser.SqlPlusParser;
 import sqlplus.parser.ddl.SqlCreateTable;
 import sqlplus.plan.SqlPlusPlanner;
+import sqlplus.plan.hint.HintNode;
 import sqlplus.plan.table.SqlPlusTable;
 import sqlplus.springboot.dto.HyperGraph;
 import sqlplus.springboot.dto.*;
+import sqlplus.springboot.rest.object.*;
+import sqlplus.springboot.rest.object.Comparison;
+import sqlplus.springboot.rest.response.ParseQueryResponse;
 import sqlplus.springboot.util.CustomQueryManager;
+
 
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import sqlplus.springboot.rest.controller.RestApiController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
+import com.fasterxml.jackson.databind.ObjectMapper; // 无下划线提示
+import com.fasterxml.jackson.core.type.TypeReference;
+
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
 
 @RestController
 public class CompileController {
@@ -67,7 +88,12 @@ public class CompileController {
 
     private CompileResult compileResult = null;
 
-    @PostMapping("/compile/submit")
+    private List<Integer> candidataIndex = new ArrayList<>();
+    private List<String>  candidataString = new ArrayList<>();
+
+    private Integer selectIndex = -1;
+
+    // @PostMapping("/compile/submit")
     public Result submit(@RequestBody CompileSubmitRequest request) {
         try {
             SqlNodeList nodeList = SqlPlusParser.parseDdl(request.getDdl());
@@ -97,6 +123,125 @@ public class CompileController {
             }
 
             candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(runResult.candidates(), 4));
+            return mkSubmitResult(candidates);
+        } catch (SqlParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @PostMapping("/compile/submit")
+    public Result submit_py(@RequestBody CompileSubmitRequest request) {
+        try {
+            SqlNodeList nodeList = SqlPlusParser.parseDdl(request.getDdl());
+            catalogManager = new CatalogManager();
+            List<SqlPlusTable> tables = catalogManager.register(nodeList);
+            storeSourceTables(nodeList);
+            SqlNode sqlNode = SqlPlusParser.parseDml(request.getQuery());
+            sql = request.getQuery();
+
+            SqlPlusPlanner sqlPlusPlanner = new SqlPlusPlanner(catalogManager);
+            RelNode logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode);
+
+            variableManager = new VariableManager();
+            Optional<String> orderBy =  Optional.of("fanout");
+            Optional<Boolean> desc = Optional.of(false);
+            Optional<Integer> limit = Optional.of(4);
+            Optional<Boolean> fixRootEnable = Optional.of(true);
+            Optional<Boolean> pruneEnable = Optional.of(false);
+            LogicalPlanConverter converter = new LogicalPlanConverter(variableManager, catalogManager);
+            RunResult runResult = converter.runAndSelect(logicalPlan, orderBy.orElse(""), desc.orElse(false), limit.orElse(Integer.MAX_VALUE), fixRootEnable.orElse(false), pruneEnable.orElse(false));
+
+            ParseQueryResponse response = new ParseQueryResponse();
+            response.setDdl(request.getDdl());
+            response.setQuery(request.getQuery());
+            response.setTables(tables.stream()
+                    .map(t -> new Table(t.getTableName(), Arrays.stream(t.getTableColumnNames()).collect(Collectors.toList())))
+                    .collect(Collectors.toList()));
+
+            List<sqlplus.springboot.rest.object.JoinTree> joinTrees = JavaConverters.seqAsJavaList(runResult.candidates()).stream()
+                    .map(t -> new RestApiController().buildJoinTree(t._1(), t._2(), t._3(), null))
+                    .collect(Collectors.toList());
+            response.setJoinTrees(joinTrees);
+
+            List<Computation> computations = JavaConverters.seqAsJavaList(runResult.computations()).stream()
+                    .map(c -> new Computation(c._1.name(), c._2.format()))
+                    .collect(Collectors.toList());
+            response.setComputations(computations);
+
+            response.setOutputVariables(JavaConverters.seqAsJavaList(runResult.outputVariables()).stream().map(Variable::name).collect(Collectors.toList()));
+            response.setGroupByVariables(JavaConverters.seqAsJavaList(runResult.groupByVariables()).stream().map(Variable::name).collect(Collectors.toList()));
+            List<Aggregation> aggregations = JavaConverters.seqAsJavaList(runResult.aggregations()).stream()
+                    .map(t -> new Aggregation(t._1().name(), t._2(), JavaConverters.seqAsJavaList(t._3()).stream().map(Expression::format).collect(Collectors.toList())))
+                    .collect(Collectors.toList());
+            response.setAggregations(aggregations);
+
+            if (runResult.optTopK().nonEmpty()) {
+                sqlplus.springboot.rest.object.TopK topK = new sqlplus.springboot.rest.object.TopK();
+                topK.setOrderByVariable(runResult.optTopK().get().sortBy().name());
+                topK.setDesc(runResult.optTopK().get().isDesc());
+                topK.setLimit(runResult.optTopK().get().limit());
+                response.setTopK(topK);
+            }
+
+            response.setFull(runResult.isFull());
+            if (!runResult.isFull()) {
+                // is the query is non-full, we add DISTINCT keyword to SparkSQL explicitly
+                sql = sql.replaceFirst("[s|S][e|E][l|L][e|E][c|C][t|T]", "SELECT DISTINCT");
+            }
+            response.setFreeConnex(runResult.isFreeConnex());
+
+            Result result = new Result();
+            result.setCode(200);
+            result.setData(response);
+
+            RestTemplate restTemplate = new RestTemplate();
+
+            String pythonUrl = "http://localhost:8000/python-api";
+
+            ResponseEntity<String> pythonResp = restTemplate.postForEntity(pythonUrl, result, String.class);
+
+
+            if (pythonResp.getStatusCode() == HttpStatus.OK) {
+                String responseJson = pythonResp.getBody();
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    Map<String, Object> resultMap = mapper.readValue(responseJson, new TypeReference<Map<String, Object>>(){});
+
+                    List<Map<String, Object>> dataList = (List<Map<String, Object>>) resultMap.get("data");
+                    if (dataList != null) {
+                        // 遍历数组里的每个 Map
+                        for (Map<String, Object> item : dataList) {
+                            // 建议用 Number 再转型，避免类型不一致引发异常
+                            int index = ((Number) item.get("index")).intValue();
+                            String queries = (String) item.get("queries");
+
+                            candidataIndex.add(index);
+                            candidataString.add(queries);
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            } else {
+                System.out.println("请求失败，状态码：" + pythonResp.getStatusCodeValue());
+            }
+
+            // TODO: add index setting
+            scala.collection.immutable.List<scala.Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> scalaCandidates = runResult.candidates();
+
+            java.util.List<scala.Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> javaCandidatesList =
+                    scala.collection.JavaConverters.seqAsJavaList(scalaCandidates);
+
+            java.util.List<scala.Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> selectedCandidatesJava =
+                    candidataIndex.stream()
+                            .filter(index -> index >= 0 && index < javaCandidatesList.size()) // 过滤无效索引
+                            .map(javaCandidatesList::get) // 根据索引获取候选项
+                            .collect(Collectors.toList());
+
+            scala.collection.immutable.List<scala.Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> scalaSelectedCandidates =
+                    scala.collection.JavaConverters.asScalaBuffer(selectedCandidatesJava).toList();
+
+            candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(scalaSelectedCandidates, 4));
             return mkSubmitResult(candidates);
         } catch (SqlParseException e) {
             throw new RuntimeException(e);
@@ -216,7 +361,7 @@ public class CompileController {
         return list;
     }
 
-    @PostMapping("/compile/candidate")
+    // @PostMapping("/compile/candidate")
     public Result candidate(@RequestBody CompileCandidateRequest request) {
         Result result = new Result();
         result.setCode(200);
@@ -245,7 +390,18 @@ public class CompileController {
         return result;
     }
 
-    @PostMapping("/compile/persist")
+    @PostMapping("/compile/candidate")
+    public Result candidate_py(@RequestBody CompileCandidateRequest request) {
+        Result result = new Result();
+        result.setCode(200);
+        CompileCandidateResponse response = new CompileCandidateResponse();
+        selectIndex = request.getIndex();
+        response.setCode(candidataString.get(selectIndex));
+        result.setData(response);
+        return result;
+    }
+
+    // @PostMapping("/compile/persist")
     public Result persist(@RequestBody CompilePersistRequest request) {
         Result result = new Result();
         result.setCode(200);
@@ -277,6 +433,34 @@ public class CompileController {
         String sparkSqlCodePath = queryPath + File.separator + sparkSqlClassname + ".scala";
         try {
             FileUtils.writeStringToFile(new File(sparkSqlCodePath), builder.toString());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        CompilePersistResponse response = new CompilePersistResponse();
+        response.setName(queryName);
+        response.setPath(queryPath);
+        result.setData(response);
+        return result;
+    }
+
+    @PostMapping("/compile/persist")
+    public Result persist_py(@RequestBody CompilePersistRequest request) {
+        Result result = new Result();
+        result.setCode(200);
+
+        String shortQueryName = CustomQueryManager.assign("examples/query/custom/");
+        String queryName = shortQueryName.replace("q", "CustomQuery");
+        String sqlplusClassname = queryName + "Yannakakis+";
+
+        String queryPath = "examples/query/custom/" + shortQueryName;
+        File queryDirectory = new File(queryPath);
+        queryDirectory.mkdirs();
+
+        // generate Yannakakis+ code
+        String sqlplusCodePath = queryPath + File.separator + sqlplusClassname + ".sql";
+        try {
+            FileUtils.writeStringToFile(new File(sqlplusCodePath), candidataString.get(selectIndex));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ParseQueryResponse {
+    private String ddl;
+    private String query;
     List<Table> tables = new ArrayList<>();
     List<JoinTree> joinTrees = new ArrayList<>();
     List<Computation> computations = new ArrayList<>();
@@ -86,6 +88,22 @@ public class ParseQueryResponse {
 
     public void setFreeConnex(boolean freeConnex) {
         isFreeConnex = freeConnex;
+    }
+
+    public String getDdl() {
+        return ddl;
+    }
+
+    public void setDdl(String ddl) {
+        this.ddl = ddl;
+    }
+
+    public String getQuery() {
+        return query;
+    }
+
+    public void setQuery(String query) {
+        this.query = query;
     }
 }
 
