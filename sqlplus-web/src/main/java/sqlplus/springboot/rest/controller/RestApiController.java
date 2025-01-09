@@ -141,6 +141,31 @@ public class RestApiController {
         return hintJoinOrders;
     }
 
+    public void genNewNode(Relation r, List<JoinTreeNode> nodes, Map<Relation, scala.collection.immutable.List<String>> reserves, List<Integer> order) {
+        if (r instanceof TableScanRelation) {
+            nodes.add(new TableScanJoinTreeNode((TableScanRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+        } else if (r instanceof TableAggRelation) {
+            nodes.add(new TableAggJoinTreeNode((TableAggRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            TableAggRelation tableAggRelation = (TableAggRelation) r;
+            List<AggregatedRelation> aggRelations = JavaConverters.seqAsJavaList(tableAggRelation.getAggRelation());
+            for (AggregatedRelation c : aggRelations) {
+                genNewNode(c, nodes, reserves, order);
+                // nodes.add(new AggregatedJoinTreeNode(c, JavaConverters.seqAsJavaList(reserves.get(c)), order));
+            }
+        } else if (r instanceof AuxiliaryRelation) {
+            nodes.add(new AuxiliaryJoinTreeNode((AuxiliaryRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+        } else if (r instanceof AggregatedRelation) {
+            nodes.add(new AggregatedJoinTreeNode((AggregatedRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+        } else {
+            nodes.add(new BagJoinTreeNode((BagRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            BagRelation bagRelation = (BagRelation) r;
+            List<Relation> inRelations = JavaConverters.seqAsJavaList(bagRelation.getInternalRelations());
+            for (Relation in : inRelations) {
+                genNewNode(in, nodes, reserves, order);
+            }
+        }
+    }
+
     public JoinTree buildJoinTree(sqlplus.graph.JoinTree joinTree, ComparisonHyperGraph comparisonHyperGraph, scala.collection.immutable.List<ExtraCondition> extra, HintNode hintNode) {
         JoinTree result = new JoinTree();
         Set<sqlplus.graph.JoinTreeEdge> joinTreeEdges = JavaConverters.setAsJavaSet(joinTree.edges());
@@ -166,18 +191,7 @@ public class RestApiController {
             if (hintJoinOrders != null) {
                 order = hintJoinOrders.get(r.getRelationId());
             }
-
-            if (r instanceof TableScanRelation) {
-                nodes.add(new TableScanJoinTreeNode((TableScanRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
-            } else if (r instanceof TableAggRelation) {
-                nodes.add(new TableAggJoinTreeNode((TableAggRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
-            } else if (r instanceof AuxiliaryRelation) {
-                nodes.add(new AuxiliaryJoinTreeNode((AuxiliaryRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
-            } else if (r instanceof AggregatedRelation) {
-                nodes.add(new AggregatedJoinTreeNode((AggregatedRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
-            } else {
-                nodes.add(new BagJoinTreeNode((BagRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
-            }
+            genNewNode(r, nodes, reserves, order);
         }
         result.setNodes(nodes);
 

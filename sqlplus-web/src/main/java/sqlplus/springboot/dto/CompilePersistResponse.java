@@ -1,22 +1,22 @@
 package sqlplus.springboot.dto;
 
 public class CompilePersistResponse {
-    String name;
-    String path;
+    long experimentTime1; // original
+    long experimentTime2; // Yannakakis
 
-    public String getName() {
-        return name;
+    public long getExperimentTime1() {
+        return experimentTime1;
     }
 
-    public void setName(String name) {
-        this.name = name;
+    public long getExperimentTime2() {
+        return experimentTime2;
     }
 
-    public String getPath() {
-        return path;
+    public void setExperimentTime1(long experimentTime1) {
+        this.experimentTime1 = experimentTime1;
     }
 
-    public void setPath(String path) {
-        this.path = path;
+    public void setExperimentTime2(long experimentTime2) {
+        this.experimentTime2 = experimentTime2;
     }
 }

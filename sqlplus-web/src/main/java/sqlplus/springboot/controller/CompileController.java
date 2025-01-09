@@ -57,8 +57,16 @@ import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
+// LOGGER
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+// SQL
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.sql.SQLException;
 
 @RestController
 public class CompileController {
@@ -91,7 +99,19 @@ public class CompileController {
     private List<Integer> candidataIndex = new ArrayList<>();
     private List<String>  candidataString = new ArrayList<>();
 
+    private List<String> sqlQueries = null;
+
     private Integer selectIndex = -1;
+
+    private long experimentTime1 = -1;
+
+    private long experimentTime2 = -1;
+
+    private static final int MAX_PRINT_ROWS = 20;
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(CompileController.class);
+
+    private static final String  JDBC_URL = "jdbc:duckdb:/Users/cbn/Desktop/graph_db";
 
     // @PostMapping("/compile/submit")
     public Result submit(@RequestBody CompileSubmitRequest request) {
@@ -138,6 +158,8 @@ public class CompileController {
             storeSourceTables(nodeList);
             SqlNode sqlNode = SqlPlusParser.parseDml(request.getQuery());
             sql = request.getQuery();
+            candidataString.clear();
+            candidataIndex.clear();
 
             SqlPlusPlanner sqlPlusPlanner = new SqlPlusPlanner(catalogManager);
             RelNode logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode);
@@ -184,9 +206,14 @@ public class CompileController {
             }
 
             response.setFull(runResult.isFull());
+
             if (!runResult.isFull()) {
                 // is the query is non-full, we add DISTINCT keyword to SparkSQL explicitly
                 sql = sql.replaceFirst("[s|S][e|E][l|L][e|E][c|C][t|T]", "SELECT DISTINCT");
+            }
+
+            if (!sql.endsWith(";")) {
+                sql = sql + ";";
             }
             response.setFreeConnex(runResult.isFreeConnex());
 
@@ -438,10 +465,74 @@ public class CompileController {
         }
 
         CompilePersistResponse response = new CompilePersistResponse();
-        response.setName(queryName);
-        response.setPath(queryPath);
+        // response.setName(queryName);
+        // response.setPath(queryPath);
         result.setData(response);
         return result;
+    }
+
+    private static List<String> splitSqlQueries(String multiQuery) {
+        // 使用分号分割，并去除空语句
+        List<String> queries = new ArrayList<>();
+        String[] splitQueries = multiQuery.split(";");
+        for (String query : splitQueries) {
+            String trimmedQuery = query.trim();
+            if (!trimmedQuery.isEmpty()) {
+                queries.add(trimmedQuery);
+            }
+        }
+        return queries;
+    }
+
+    public long execQuery(String query, Connection connection, Statement statement) throws SQLException {
+        // 跳过空语句
+        if (query.trim().isEmpty()) {
+            return 0;
+        }
+
+        long exetTime = -1;
+
+        LOGGER.info("执行查询: {}", query);
+        long startTime = System.nanoTime(); // 记录开始时间
+
+        try (ResultSet resultSet = statement.executeQuery(query)) {
+            long endTime = System.nanoTime(); // 记录结束时间
+            long durationInMillis = (endTime - startTime) / 1_000_000; // 计算运行时间（毫秒）
+            exetTime = durationInMillis;
+
+            LOGGER.info("查询运行时间: {} 毫秒", durationInMillis);
+            LOGGER.info("查询结果:");
+
+            // 获取结果集的元数据以动态处理列
+            int columnCount = resultSet.getMetaData().getColumnCount();
+
+            // 打印列名
+            StringBuilder header = new StringBuilder();
+            for (int i = 1; i <= columnCount; i++) {
+                header.append(resultSet.getMetaData().getColumnName(i)).append("\t");
+            }
+            LOGGER.info(header.toString());
+
+            // 打印每一行
+            int rowCount = 0;
+            while (resultSet.next()) {
+                if (rowCount >= MAX_PRINT_ROWS) {
+                    LOGGER.info("结果被截断，显示前 {} 行。", MAX_PRINT_ROWS);
+                    break;
+                }
+                rowCount ++;
+                StringBuilder row = new StringBuilder();
+                for (int i = 1; i <= columnCount; i++) {
+                    row.append(resultSet.getString(i)).append("\t");
+                }
+                LOGGER.info(row.toString());
+            }
+        } catch (SQLException e) {
+            LOGGER.error("执行查询时发生错误: {}", query, e);
+        }
+
+        LOGGER.info("--------------------------------------------------");
+        return exetTime;
     }
 
     @PostMapping("/compile/persist")
@@ -449,25 +540,37 @@ public class CompileController {
         Result result = new Result();
         result.setCode(200);
 
-        String shortQueryName = CustomQueryManager.assign("examples/query/custom/");
-        String queryName = shortQueryName.replace("q", "CustomQuery");
-        String sqlplusClassname = queryName + "Yannakakis+";
+        experimentTime1 = -1;
+        experimentTime2 = -1;
 
-        String queryPath = "examples/query/custom/" + shortQueryName;
-        File queryDirectory = new File(queryPath);
-        queryDirectory.mkdirs();
+        sqlQueries = splitSqlQueries(candidataString.get(selectIndex));
 
-        // generate Yannakakis+ code
-        String sqlplusCodePath = queryPath + File.separator + sqlplusClassname + ".sql";
-        try {
-            FileUtils.writeStringToFile(new File(sqlplusCodePath), candidataString.get(selectIndex));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        System.out.println("Class Path: " + System.getProperty("java.class.path"));
+
+        // Class.forName("org.duckdb.DuckDBDriver");
+
+        try (Connection connection = DriverManager.getConnection(JDBC_URL);
+             Statement statement = connection.createStatement();) {
+
+            LOGGER.info("成功连接到DuckDB数据库。");
+
+            for (int i = 0; i < sqlQueries.size(); i++) {
+                String query = sqlQueries.get(i);
+                if (i < sqlQueries.size() - 1) {
+                    statement.executeUpdate(query);
+                } else {
+                    experimentTime2 = execQuery(query, connection, statement);
+                }
+            }
+            experimentTime1 = execQuery(sql, connection, statement);
+
+        } catch (SQLException e) {
+            LOGGER.error("无法连接到DuckDB数据库。", e);
         }
 
         CompilePersistResponse response = new CompilePersistResponse();
-        response.setName(queryName);
-        response.setPath(queryPath);
+        response.setExperimentTime1(experimentTime1);
+        response.setExperimentTime2(experimentTime2);
         result.setData(response);
         return result;
     }
