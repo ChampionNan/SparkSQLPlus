@@ -33,12 +33,10 @@ import sqlplus.graph.JoinTreeEdge;
 import sqlplus.parser.SqlPlusParser;
 import sqlplus.parser.ddl.SqlCreateTable;
 import sqlplus.plan.SqlPlusPlanner;
-import sqlplus.plan.hint.HintNode;
 import sqlplus.plan.table.SqlPlusTable;
 import sqlplus.springboot.dto.HyperGraph;
 import sqlplus.springboot.dto.*;
 import sqlplus.springboot.rest.object.*;
-import sqlplus.springboot.rest.object.Comparison;
 import sqlplus.springboot.rest.response.ParseQueryResponse;
 import sqlplus.springboot.util.CustomQueryManager;
 
@@ -111,7 +109,13 @@ public class CompileController {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CompileController.class);
 
-    private static final String  JDBC_URL = "jdbc:duckdb:/Users/cbn/Desktop/graph_db";
+    private static final String  DUCKDB_URL = "jdbc:duckdb:/Users/cbn/Desktop/graph_db";
+    private static final String  MYSQL_URL = "jdbc:mysql://localhost:3306/test";
+    private static final String MYSQL_USER = "test";
+    private static final String  POSYGRESQL_URL = "jdbc:postgresql://localhost:5432/test";
+    private static final String POSYGRESQL_USER = "test";
+
+    private static final String  JDBC_URL = "";
 
     // @PostMapping("/compile/submit")
     public Result submit(@RequestBody CompileSubmitRequest request) {
@@ -143,7 +147,7 @@ public class CompileController {
             }
 
             candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(runResult.candidates(), 4));
-            return mkSubmitResult(candidates);
+            return mkSubmitResult(candidates, "");
         } catch (SqlParseException e) {
             throw new RuntimeException(e);
         }
@@ -221,6 +225,19 @@ public class CompileController {
             result.setCode(200);
             result.setData(response);
 
+            String ddl_name = "";
+            String ddl = request.getDdl();
+            if (ddl.contains("Graph") || ddl.contains("graph")) {
+                ddl_name = "graph";
+            } else if (ddl.contains("University") || ddl.contains("lsqb")) {
+                ddl_name = "lsqb";
+            } else if (ddl.contains("lineitem") || ddl.contains("tpch")) {
+                ddl_name = "tpch";
+            } else if (ddl.contains("aka_name") || ddl.contains("job")) {
+                ddl_name = "job";
+            }
+            result.setDdl_name(ddl_name);
+
             RestTemplate restTemplate = new RestTemplate();
 
             String pythonUrl = "http://localhost:8000/python-api";
@@ -269,7 +286,7 @@ public class CompileController {
                     scala.collection.JavaConverters.asScalaBuffer(selectedCandidatesJava).toList();
 
             candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(scalaSelectedCandidates, 4));
-            return mkSubmitResult(candidates);
+            return mkSubmitResult(candidates, ddl_name);
         } catch (SqlParseException e) {
             throw new RuntimeException(e);
         }
@@ -286,7 +303,7 @@ public class CompileController {
         tables = scala.collection.JavaConverters.asScalaBuffer(sourceTables).toList();
     }
 
-    private Result mkSubmitResult(List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates) {
+    private Result mkSubmitResult(List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates, String ddl_name) {
         Result result = new Result();
         result.setCode(200);
         CompileSubmitResponse response = new CompileSubmitResponse();
@@ -323,6 +340,7 @@ public class CompileController {
             candidate.setBags(bags);
             return candidate;
         }).collect(Collectors.toList()));
+        result.setDdl_name(ddl_name);
         result.setData(response);
         return result;
     }
@@ -535,6 +553,40 @@ public class CompileController {
         return exetTime;
     }
 
+    static class DatabaseConfig {
+        private final String url;
+        private final String user;
+        private final String password;
+
+        public DatabaseConfig(String url, String user, String password) {
+            this.url = url;
+            this.user = user;
+            this.password = password;
+        }
+
+        public String getUrl() {
+            return url;
+        }
+
+        public String getUser() {
+            return user;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+    }
+
+    private static Connection getConnection(DatabaseConfig config) throws SQLException {
+        if (config.getUser() != null && config.getPassword() != null) {
+            return DriverManager.getConnection(config.getUrl(), config.getUser(), config.getPassword());
+        } else if (config.getUser() != null ) {
+            return DriverManager.getConnection(config.getUrl(), config.getUser(), null);
+        } else {
+            return DriverManager.getConnection(config.getUrl());
+        }
+    }
+
     @PostMapping("/compile/persist")
     public Result persist_py(@RequestBody CompilePersistRequest request) {
         Result result = new Result();
@@ -543,19 +595,31 @@ public class CompileController {
         experimentTime1 = -1;
         experimentTime2 = -1;
 
+        String db_type = request.getName();
+
         sqlQueries = splitSqlQueries(candidataString.get(selectIndex));
+        DatabaseConfig db_config = null;
+        if (db_type.equals("duckdb")) {
+            db_config = new DatabaseConfig(DUCKDB_URL, null, null);
+        } else if (db_type.equals("mysql")) {
+            db_config = new DatabaseConfig(MYSQL_URL, MYSQL_USER, null);
+        } else if (db_type.equals("postgresql")) {
+            db_config = new DatabaseConfig(POSYGRESQL_URL, POSYGRESQL_USER, null);
+        } else {
+            LOGGER.error("没有登记该数据库的JDBC连接");
+        }
 
-        System.out.println("Class Path: " + System.getProperty("java.class.path"));
-
-        // Class.forName("org.duckdb.DuckDBDriver");
-
-        try (Connection connection = DriverManager.getConnection(JDBC_URL);
+        try (Connection connection = getConnection(db_config);
              Statement statement = connection.createStatement();) {
 
             LOGGER.info("成功连接到DuckDB数据库。");
 
             for (int i = 0; i < sqlQueries.size(); i++) {
                 String query = sqlQueries.get(i);
+                if (db_type.equals("mysql") && query.contains("TEMP")) {
+                    // 替换"TEMP"为空字符串
+                    query = query.replace(" TEMP", "");
+                }
                 if (i < sqlQueries.size() - 1) {
                     statement.executeUpdate(query);
                 } else {
@@ -565,7 +629,7 @@ public class CompileController {
             experimentTime1 = execQuery(sql, connection, statement);
 
         } catch (SQLException e) {
-            LOGGER.error("无法连接到DuckDB数据库。", e);
+            LOGGER.error("无法连接到数据库。", e);
         }
 
         CompilePersistResponse response = new CompilePersistResponse();

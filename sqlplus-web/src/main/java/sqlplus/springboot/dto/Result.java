@@ -3,6 +3,7 @@ package sqlplus.springboot.dto;
 public class Result {
     private int code;
     private String message = "success";
+    private String ddl_name = "";
     private Object data;
 
     public int getCode() {
@@ -20,6 +21,10 @@ public class Result {
     public void setMessage(String message) {
         this.message = message;
     }
+
+    public String getDdl_name() { return this.ddl_name; }
+
+    public void setDdl_name(String ddl_name) { this.ddl_name = ddl_name; }
 
     public Object getData() {
         return data;

@@ -95,6 +95,16 @@
       <artifactId>duckdb_jdbc</artifactId>
       <version>1.1.2</version>
     </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.4</version>
+    </dependency>
+    <dependency>
+      <groupId>mysql</groupId>
+      <artifactId>mysql-connector-java</artifactId>
+      <version>8.0.33</version>
+    </dependency>
 
     <!-- SLF4J API -->
     <dependency>
