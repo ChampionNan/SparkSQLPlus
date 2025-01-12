@@ -44,9 +44,11 @@ public class Tree {
             String bagName = bagRelationNames.get(root.getTableDisplayName());
             rootMap.put("relation", bagName);
             rootMap.put("isBag", true);
+            rootMap.put("cardinality", -1);
         } else {
             rootMap.put("relation", root.getTableDisplayName());
             rootMap.put("isBag", false);
+            rootMap.put("cardinality", root.getCardinality());
         }
         rootMap.put("variables", new ArrayList<>(scala.collection.JavaConverters.seqAsJavaList(root.getVariableList()).stream().map(Variable::name).collect(Collectors.toList())));
         rootMap.put("children", new ArrayList<HashMap<String, Object>>());
@@ -85,9 +87,11 @@ public class Tree {
             String bagName = bagRelationNames.get(relation.getTableDisplayName());
             map.put("relation", bagName);
             map.put("isBag", true);
+            map.put("cardinality", -1);
         } else {
             map.put("relation", relation.getTableDisplayName());
             map.put("isBag", false);
+            map.put("cardinality", relation.getCardinality());
         }
         map.put("variables", new ArrayList<>(scala.collection.JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList())));
         map.put("children", new ArrayList<HashMap<String, Object>>());

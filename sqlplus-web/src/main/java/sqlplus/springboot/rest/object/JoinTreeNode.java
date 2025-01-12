@@ -9,15 +9,18 @@ public class JoinTreeNode {
     List<String> reserves;
     List<Integer> hintJoinOrder;
 
+    Long cardinality;
+
     public JoinTreeNode() {
     }
 
-    public JoinTreeNode(int id, String type, String alias, List<String> reserves, List<Integer> hintJoinOrder) {
+    public JoinTreeNode(int id, String type, String alias, List<String> reserves, List<Integer> hintJoinOrder, Long cardinality) {
         this.id = id;
         this.type = type;
         this.alias = alias;
         this.reserves = reserves;
         this.hintJoinOrder = hintJoinOrder;
+        this.cardinality = cardinality;
     }
 
     public int getId() {
@@ -59,4 +62,8 @@ public class JoinTreeNode {
     public void setHintJoinOrder(List<Integer> hintJoinOrder) {
         this.hintJoinOrder = hintJoinOrder;
     }
+
+    public Long getCardinality() { return this.cardinality; }
+
+    public void setCardinality(Long cardinality) { this.cardinality = cardinality; }
 }

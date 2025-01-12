@@ -96,6 +96,8 @@ public class CompileController {
 
     private List<Integer> candidataIndex = new ArrayList<>();
     private List<String>  candidataString = new ArrayList<>();
+    private List<Double> candidataCost = new ArrayList<>();
+    private List<List<NodeStat>> nodeStatMap = new ArrayList<>();
 
     private List<String> sqlQueries = null;
 
@@ -164,6 +166,7 @@ public class CompileController {
             sql = request.getQuery();
             candidataString.clear();
             candidataIndex.clear();
+            candidataCost.clear();
 
             SqlPlusPlanner sqlPlusPlanner = new SqlPlusPlanner(catalogManager);
             RelNode logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode);
@@ -258,9 +261,25 @@ public class CompileController {
                             // 建议用 Number 再转型，避免类型不一致引发异常
                             int index = ((Number) item.get("index")).intValue();
                             String queries = (String) item.get("queries");
+                            double cost = ((Number) item.get("cost")).doubleValue();
+                            List<List<Object>> nodeStatList = (List<List<Object>>) item.get("node_stat");
+                            List<NodeStat> oneSetNodes = new ArrayList<>();
+                            if (nodeStatList != null) {
+                                for (List<Object> nodeData : nodeStatList) {
+                                    int id = ((Number) nodeData.get(0)).intValue();
+                                    String alias = (String) nodeData.get(1);
+                                    double trueSize = ((Number) nodeData.get(2)).doubleValue();
+                                    double estimateSize = ((Number) nodeData.get(3)).doubleValue();
+                                    NodeStat nodeStat = new NodeStat(id, alias, trueSize, estimateSize);
+                                    oneSetNodes.add(nodeStat);
+                                    // parsedNodeStat.add(nodeStat);
+                                }
+                            }
 
                             candidataIndex.add(index);
                             candidataString.add(queries);
+                            candidataCost.add(cost);
+                            nodeStatMap.add(oneSetNodes);
                         }
                     }
                 } catch (IOException e) {
@@ -307,6 +326,8 @@ public class CompileController {
         Result result = new Result();
         result.setCode(200);
         CompileSubmitResponse response = new CompileSubmitResponse();
+        response.setCost(candidataCost);
+        response.setNodeStatMap(nodeStatMap);
         response.setCandidates(candidates.stream().map(tuple -> {
             Candidate candidate = new Candidate();
             List<Relation> relations = extractRelations(tuple._1());

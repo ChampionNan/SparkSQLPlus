@@ -16,8 +16,8 @@ public class BagJoinTreeNode extends JoinTreeNode {
 
     List<Integer> inId;
 
-    public BagJoinTreeNode(BagRelation relation, List<String> reserve, List<Integer> hintJoinOrder) {
-        super(relation.getRelationId(), "BagRelation", relation.getTableDisplayName(), reserve, hintJoinOrder);
+    public BagJoinTreeNode(BagRelation relation, List<String> reserve, List<Integer> hintJoinOrder, Long cardinality) {
+        super(relation.getRelationId(), "BagRelation", relation.getTableDisplayName(), reserve, hintJoinOrder, cardinality);
         this.internal = JavaConverters.seqAsJavaList(relation.getInternalRelations()).stream().map(Relation::getTableDisplayName).collect(Collectors.toList());
         this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
         List<Relation> inRelations = JavaConverters.seqAsJavaList(relation.getInternalRelations());

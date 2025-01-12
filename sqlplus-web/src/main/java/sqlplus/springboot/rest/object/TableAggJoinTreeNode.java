@@ -15,8 +15,8 @@ public class TableAggJoinTreeNode extends JoinTreeNode {
 
     List<Integer> aggList;
 
-    public TableAggJoinTreeNode(TableAggRelation relation, List<String> reserve, List<Integer> hintJoinOrder) {
-        super(relation.getRelationId(), "TableAggRelation", relation.getTableDisplayName(), reserve, hintJoinOrder);
+    public TableAggJoinTreeNode(TableAggRelation relation, List<String> reserve, List<Integer> hintJoinOrder, Long cardinality) {
+        super(relation.getRelationId(), "TableAggRelation", relation.getTableDisplayName(), reserve, hintJoinOrder, cardinality);
         this.source = relation.getTableName();
         this.columns = JavaConverters.seqAsJavaList(relation.getVariableList()).stream().map(Variable::name).collect(Collectors.toList());
         List<AggregatedRelation> aggRelations = JavaConverters.seqAsJavaList(relation.getAggRelation());

@@ -141,27 +141,27 @@ public class RestApiController {
         return hintJoinOrders;
     }
 
-    public void genNewNode(Relation r, List<JoinTreeNode> nodes, Map<Relation, scala.collection.immutable.List<String>> reserves, List<Integer> order) {
+    public void genNewNode(Relation r, List<JoinTreeNode> nodes, Map<Relation, scala.collection.immutable.List<String>> reserves, List<Integer> order, Long cardinality) {
         if (r instanceof TableScanRelation) {
-            nodes.add(new TableScanJoinTreeNode((TableScanRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            nodes.add(new TableScanJoinTreeNode((TableScanRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order, cardinality));
         } else if (r instanceof TableAggRelation) {
-            nodes.add(new TableAggJoinTreeNode((TableAggRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            nodes.add(new TableAggJoinTreeNode((TableAggRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order, cardinality));
             TableAggRelation tableAggRelation = (TableAggRelation) r;
             List<AggregatedRelation> aggRelations = JavaConverters.seqAsJavaList(tableAggRelation.getAggRelation());
             for (AggregatedRelation c : aggRelations) {
-                genNewNode(c, nodes, reserves, order);
+                genNewNode(c, nodes, reserves, order, cardinality);
                 // nodes.add(new AggregatedJoinTreeNode(c, JavaConverters.seqAsJavaList(reserves.get(c)), order));
             }
         } else if (r instanceof AuxiliaryRelation) {
-            nodes.add(new AuxiliaryJoinTreeNode((AuxiliaryRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            nodes.add(new AuxiliaryJoinTreeNode((AuxiliaryRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order, cardinality));
         } else if (r instanceof AggregatedRelation) {
-            nodes.add(new AggregatedJoinTreeNode((AggregatedRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            nodes.add(new AggregatedJoinTreeNode((AggregatedRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order, cardinality));
         } else {
-            nodes.add(new BagJoinTreeNode((BagRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order));
+            nodes.add(new BagJoinTreeNode((BagRelation) r, JavaConverters.seqAsJavaList(reserves.get(r)), order, cardinality));
             BagRelation bagRelation = (BagRelation) r;
             List<Relation> inRelations = JavaConverters.seqAsJavaList(bagRelation.getInternalRelations());
             for (Relation in : inRelations) {
-                genNewNode(in, nodes, reserves, order);
+                genNewNode(in, nodes, reserves, order, cardinality);
             }
         }
     }
@@ -191,7 +191,7 @@ public class RestApiController {
             if (hintJoinOrders != null) {
                 order = hintJoinOrders.get(r.getRelationId());
             }
-            genNewNode(r, nodes, reserves, order);
+            genNewNode(r, nodes, reserves, order, r.getCardinality());
         }
         result.setNodes(nodes);
 
