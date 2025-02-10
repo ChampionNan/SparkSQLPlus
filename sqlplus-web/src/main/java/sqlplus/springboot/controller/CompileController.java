@@ -114,8 +114,8 @@ public class CompileController {
     private static final String  DUCKDB_URL = "jdbc:duckdb:/Users/cbn/Desktop/graph_db";
     private static final String  MYSQL_URL = "jdbc:mysql://localhost:3306/test";
     private static final String MYSQL_USER = "test";
-    private static final String  POSYGRESQL_URL = "jdbc:postgresql://localhost:5432/test";
-    private static final String POSYGRESQL_USER = "test";
+    private static final String  POSTGRESQL_URL = "jdbc:postgresql://localhost:5432/test";
+    private static final String POSTGRESQL_USER = "test";
 
     private static final String  JDBC_URL = "";
 
@@ -164,9 +164,6 @@ public class CompileController {
             storeSourceTables(nodeList);
             SqlNode sqlNode = SqlPlusParser.parseDml(request.getQuery());
             sql = request.getQuery();
-            candidataString.clear();
-            candidataIndex.clear();
-            candidataCost.clear();
 
             SqlPlusPlanner sqlPlusPlanner = new SqlPlusPlanner(catalogManager);
             RelNode logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode);
@@ -255,6 +252,13 @@ public class CompileController {
                     Map<String, Object> resultMap = mapper.readValue(responseJson, new TypeReference<Map<String, Object>>(){});
 
                     List<Map<String, Object>> dataList = (List<Map<String, Object>>) resultMap.get("data");
+                    this.candidataString.clear();
+                    this.candidataIndex.clear();
+                    this.candidataCost.clear();
+                    System.out.println("Before clearing nodeStatMap: " + this.nodeStatMap.size());
+                    this.nodeStatMap.clear();
+                    this.nodeStatMap = new ArrayList<>();
+                    System.out.println("After clearing nodeStatMap: " + this.nodeStatMap.size());
                     if (dataList != null) {
                         // 遍历数组里的每个 Map
                         for (Map<String, Object> item : dataList) {
@@ -276,10 +280,10 @@ public class CompileController {
                                 }
                             }
 
-                            candidataIndex.add(index);
-                            candidataString.add(queries);
-                            candidataCost.add(cost);
-                            nodeStatMap.add(oneSetNodes);
+                            this.candidataIndex.add(index);
+                            this.candidataString.add(queries);
+                            this.candidataCost.add(cost);
+                            this.nodeStatMap.add(oneSetNodes);
                         }
                     }
                 } catch (IOException e) {
@@ -326,8 +330,8 @@ public class CompileController {
         Result result = new Result();
         result.setCode(200);
         CompileSubmitResponse response = new CompileSubmitResponse();
-        response.setCost(candidataCost);
-        response.setNodeStatMap(nodeStatMap);
+        response.setCost(this.candidataCost);
+        response.setNodeStatMap(this.nodeStatMap);
         response.setCandidates(candidates.stream().map(tuple -> {
             Candidate candidate = new Candidate();
             List<Relation> relations = extractRelations(tuple._1());
@@ -625,7 +629,7 @@ public class CompileController {
         } else if (db_type.equals("mysql")) {
             db_config = new DatabaseConfig(MYSQL_URL, MYSQL_USER, null);
         } else if (db_type.equals("postgresql")) {
-            db_config = new DatabaseConfig(POSYGRESQL_URL, POSYGRESQL_USER, null);
+            db_config = new DatabaseConfig(POSTGRESQL_URL, POSTGRESQL_USER, null);
         } else {
             LOGGER.error("没有登记该数据库的JDBC连接");
         }
