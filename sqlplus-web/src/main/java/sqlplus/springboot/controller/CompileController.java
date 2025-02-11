@@ -255,10 +255,8 @@ public class CompileController {
                     this.candidataString.clear();
                     this.candidataIndex.clear();
                     this.candidataCost.clear();
-                    System.out.println("Before clearing nodeStatMap: " + this.nodeStatMap.size());
                     this.nodeStatMap.clear();
                     this.nodeStatMap = new ArrayList<>();
-                    System.out.println("After clearing nodeStatMap: " + this.nodeStatMap.size());
                     if (dataList != null) {
                         // 遍历数组里的每个 Map
                         for (Map<String, Object> item : dataList) {
