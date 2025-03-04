@@ -92,6 +92,8 @@ public class CompileController {
 
     private String sql = null;
 
+    private String ddl = null;
+
     private CompileResult compileResult = null;
 
     private List<Integer> candidataIndex = new ArrayList<>();
@@ -164,6 +166,7 @@ public class CompileController {
             storeSourceTables(nodeList);
             SqlNode sqlNode = SqlPlusParser.parseDml(request.getQuery());
             sql = request.getQuery();
+            ddl = request.getDdl();
 
             SqlPlusPlanner sqlPlusPlanner = new SqlPlusPlanner(catalogManager);
             RelNode logicalPlan = sqlPlusPlanner.toLogicalPlan(sqlNode);
@@ -235,7 +238,10 @@ public class CompileController {
                 ddl_name = "tpch";
             } else if (ddl.contains("aka_name") || ddl.contains("job")) {
                 ddl_name = "job";
+            } else {
+                ddl_name = "custom";
             }
+
             result.setDdl_name(ddl_name);
 
             RestTemplate restTemplate = new RestTemplate();
