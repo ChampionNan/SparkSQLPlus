@@ -174,8 +174,8 @@ public class CompileController {
             variableManager = new VariableManager();
             Optional<String> orderBy =  Optional.of("fanout");
             Optional<Boolean> desc = Optional.of(false);
-            Optional<Integer> limit = Optional.of(4);
-            Optional<Boolean> fixRootEnable = Optional.of(true);
+            Optional<Integer> limit = Optional.of(8);
+            Optional<Boolean> fixRootEnable = Optional.of(false);
             Optional<Boolean> pruneEnable = Optional.of(false);
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager, catalogManager);
             RunResult runResult = converter.runAndSelect(logicalPlan, orderBy.orElse(""), desc.orElse(false), limit.orElse(Integer.MAX_VALUE), fixRootEnable.orElse(false), pruneEnable.orElse(false));
