@@ -328,7 +328,10 @@ public class CompileController {
             candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(scalaSelectedCandidates, 4));
             return mkSubmitResult(candidates, ddl_name);
         } catch (SqlParseException e) {
-            throw new RuntimeException(e);
+            Result result = new Result();
+            result.setCode(404);
+            result.setMessage(Result.FALLBACK);
+            return result;
         }
     }
 
@@ -346,6 +349,7 @@ public class CompileController {
     private Result mkSubmitResult(List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates, String ddl_name) {
         Result result = new Result();
         result.setCode(200);
+        result.setMessage(Result.SUCCESS);
         CompileSubmitResponse response = new CompileSubmitResponse();
         response.setCost(this.candidataCost);
         response.setNodeStatMap(this.nodeStatMap);
