@@ -113,11 +113,13 @@ public class CompileController {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CompileController.class);
 
-    private static final String  DUCKDB_URL = "jdbc:duckdb:/Users/cbn/Desktop/graph_db";
-    private static final String  MYSQL_URL = "jdbc:mysql://localhost:3306/test";
-    private static final String MYSQL_USER = "test";
-    private static final String  POSTGRESQL_URL = "jdbc:postgresql://localhost:5432/test";
-    private static final String POSTGRESQL_USER = "test";
+    private static String  DUCKDB_URL = "jdbc:duckdb:/Users/cbn/Desktop/graph_db";
+    private static String  MYSQL_URL = "jdbc:mysql://localhost:3306/test";
+    private static String MYSQL_USER = "test";
+    private static String MYSQL_PASSWORD = "";
+    private static String  POSTGRESQL_URL = "jdbc:postgresql://localhost:5432/test";
+    private static String POSTGRESQL_USER = "test";
+    private static String POSTGRESQL_PASSWORD = "";
 
     private static final String  JDBC_URL = "";
 
@@ -628,14 +630,19 @@ public class CompileController {
 
         sqlQueries = splitSqlQueries(candidataString.get(selectIndex));
         DatabaseConfig db_config = null;
-        if (db_type.equals("duckdb")) {
-            db_config = new DatabaseConfig(DUCKDB_URL, null, null);
-        } else if (db_type.equals("mysql")) {
-            db_config = new DatabaseConfig(MYSQL_URL, MYSQL_USER, null);
-        } else if (db_type.equals("postgresql")) {
-            db_config = new DatabaseConfig(POSTGRESQL_URL, POSTGRESQL_USER, null);
-        } else {
-            LOGGER.error("没有登记该数据库的JDBC连接");
+        switch (db_type) {
+            case "duckdb":
+                db_config = new DatabaseConfig(DUCKDB_URL, null, null);
+                break;
+            case "mysql":
+                db_config = new DatabaseConfig(MYSQL_URL, MYSQL_USER, null);
+                break;
+            case "postgresql":
+                db_config = new DatabaseConfig(POSTGRESQL_URL, POSTGRESQL_USER, null);
+                break;
+            default:
+                LOGGER.error("没有登记该数据库的JDBC连接");
+                break;
         }
 
         try (Connection connection = getConnection(db_config);
@@ -666,5 +673,120 @@ public class CompileController {
         response.setExperimentTime2(experimentTime2);
         result.setData(response);
         return result;
+    }
+
+    @PostMapping("/compile/custom-dbms")
+    public Result customDbms(@RequestBody CustomDbmsRequest request) {
+        Result result = new Result();
+
+        try {
+            // 验证请求参数
+            if (request.getDbmsName() == null || request.getDbmsName().trim().isEmpty()) {
+                CustomDbmsResponse response = new CustomDbmsResponse(false, "DBMS名称不能为空");
+                result.setCode(400);
+                result.setData(response);
+                result.setMessage("参数错误");
+                return result;
+            }
+
+            if (request.getUrl() == null || request.getUrl().trim().isEmpty()) {
+                CustomDbmsResponse response = new CustomDbmsResponse(false, "数据库URL不能为空");
+                result.setCode(400);
+                result.setData(response);
+                result.setMessage("参数错误");
+                return result;
+            }
+
+            // 根据数据库类型创建配置
+            String dbmsName = request.getDbmsName().toLowerCase().trim();
+
+            DatabaseConfig db_config = null;
+
+            // 构建完整的JDBC URL
+            String jdbcPrefix = getDriverClass(dbmsName);
+            if (jdbcPrefix == null) {
+                LOGGER.error("没有登记该数据库的JDBC连接: {}", dbmsName);
+                return null;
+            }
+
+            String fullUrl = jdbcPrefix + request.getUrl();
+
+            System.out.println("请求失败，状态码：" + fullUrl);
+
+            switch (dbmsName) {
+                case "duckdb":
+                    db_config = new DatabaseConfig(fullUrl, null, null);
+                    break;
+                case "mysql":
+                case "postgresql":
+                case "postgres":
+                    db_config = new DatabaseConfig(fullUrl, request.getUsername(), request.getPassword());
+                    break;
+                default:
+                    LOGGER.error("没有登记该数据库的JDBC连接: {}", dbmsName);
+                    break;
+            }
+
+            if (db_config == null) {
+                CustomDbmsResponse response = new CustomDbmsResponse(false, "不支持的数据库类型: " + request.getDbmsName());
+                result.setCode(400);
+                result.setData(response);
+                result.setMessage("数据库类型错误");
+                return result;
+            }
+
+            try (Connection connection = getConnection(db_config);
+                 Statement statement = connection.createStatement();) {
+
+                LOGGER.info("Set successfully! ");
+                LOGGER.info(dbmsName);
+
+                switch (dbmsName) {
+                    case "duckdb":
+                        DUCKDB_URL = db_config.getUrl();
+                        break;
+                    case "mysql":
+                        MYSQL_URL = db_config.getUrl();
+                        MYSQL_USER = db_config.getUser();
+                        MYSQL_PASSWORD = db_config.getPassword();
+                        break;
+                    case "postgresql":
+                    case "postgres":
+                        POSTGRESQL_URL = db_config.getUrl();
+                        POSTGRESQL_USER = db_config.getUser();
+                        POSTGRESQL_PASSWORD = db_config.getPassword();
+                        break;
+                    default:
+                        LOGGER.error("没有登记该数据库的JDBC连接: {}", dbmsName);
+                        break;
+                }
+                CustomDbmsResponse response;
+                response = new CustomDbmsResponse(true, "Successfully connect to " + request.getDbmsName().trim() + " database! ");
+                result.setCode(200);
+                result.setMessage("Success");
+                result.setData(response);
+            }
+        } catch (Exception e) {
+            CustomDbmsResponse response = new CustomDbmsResponse(false, "服务器内部错误: " + e.getMessage());
+            result.setCode(500);
+            result.setData(response);
+            result.setMessage("服务器错误");
+            LOGGER.error("数据库连接测试异常", e);
+        }
+        return result;
+    }
+
+    private String getDriverClass(String dbmsName) {
+        switch (dbmsName.toLowerCase().trim()) {
+            case "duckdb":
+                return "jdbc:duckdb:";
+            case "postgresql":
+            case "postgres":
+                return "jdbc:postgresql:";
+            case "mysql":
+                return "jdbc:mysql:";
+            default:
+                return null;
+        }
     }
 }
