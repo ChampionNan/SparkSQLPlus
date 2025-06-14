@@ -16,7 +16,6 @@ public class ParseQueryResponse {
     List<Aggregation> aggregations = new ArrayList<>();
     TopK topK = null;
     boolean isFull;
-    boolean isFreeConnex;
 
     public List<Table> getTables() {
         return tables;
@@ -80,30 +79,6 @@ public class ParseQueryResponse {
 
     public void setFull(boolean full) {
         isFull = full;
-    }
-
-    public boolean isFreeConnex() {
-        return isFreeConnex;
-    }
-
-    public void setFreeConnex(boolean freeConnex) {
-        isFreeConnex = freeConnex;
-    }
-
-    public String getDdl() {
-        return ddl;
-    }
-
-    public void setDdl(String ddl) {
-        this.ddl = ddl;
-    }
-
-    public String getQuery() {
-        return query;
-    }
-
-    public void setQuery(String query) {
-        this.query = query;
     }
 }
 

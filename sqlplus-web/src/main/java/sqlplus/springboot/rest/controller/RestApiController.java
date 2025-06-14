@@ -5,11 +5,11 @@ import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.bind.annotation.*;
+import scala.Option;
+import scala.Some;
 import scala.collection.JavaConverters;
 import sqlplus.catalog.CatalogManager;
-import sqlplus.convert.ExtraCondition;
-import sqlplus.convert.LogicalPlanConverter;
-import sqlplus.convert.RunResult;
+import sqlplus.convert.*;
 import sqlplus.expression.Expression;
 import sqlplus.expression.Variable;
 import sqlplus.expression.VariableManager;
@@ -23,6 +23,7 @@ import sqlplus.springboot.rest.object.Comparison;
 import sqlplus.springboot.rest.object.JoinTree;
 import sqlplus.springboot.rest.object.JoinTreeEdge;
 import sqlplus.springboot.rest.object.*;
+import sqlplus.springboot.rest.object.TopK;
 import sqlplus.springboot.rest.request.ParseQueryRequest;
 import sqlplus.springboot.rest.response.ParseQueryResponse;
 
@@ -37,13 +38,11 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/v1")
 public class RestApiController {
-    @Resource(name="threadPoolTaskExecutor")
+    @Resource(name = "threadPoolTaskExecutor")
     ThreadPoolTaskExecutor executor;
 
     @PostMapping("/parse")
-    public Result parseQuery(@RequestBody ParseQueryRequest request,
-                             @RequestParam Optional<String> orderBy, @RequestParam Optional<Boolean> desc, @RequestParam Optional<Integer> limit,
-                             @RequestParam Optional<Boolean> fixRootEnable, @RequestParam Optional<Boolean> pruneEnable, @RequestParam Optional<Integer> timeout) {
+    public Result parseQuery(@RequestBody ParseQueryRequest request, @RequestParam Optional<Integer> timeout) {
         try {
             SqlNodeList nodeList = SqlPlusParser.parseDdl(request.getDdl());
             CatalogManager catalogManager = new CatalogManager();
@@ -56,63 +55,78 @@ public class RestApiController {
 
             VariableManager variableManager = new VariableManager();
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager, catalogManager);
+            Context context = converter.traverseLogicalPlan(logicalPlan);
 
-            RunResult runResult;
-            if (request.getPlan() == null) {
-                runResult = converter.runAndSelect(logicalPlan, orderBy.orElse(""), desc.orElse(false), limit.orElse(Integer.MAX_VALUE), fixRootEnable.orElse(false), pruneEnable.orElse(false));
-            } else {
-                Future<RunResult> runResultFuture = executor.submit(() -> converter.runAndSelect(logicalPlan,
-                    orderBy.orElse(""), desc.orElse(false), limit.orElse(Integer.MAX_VALUE),
-                    fixRootEnable.orElse(false), pruneEnable.orElse(false)));
-
-                int maxTimeout = timeout.orElse(Integer.MAX_VALUE);
-
-                try {
-                    runResult = runResultFuture.get(maxTimeout, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException | ExecutionException | TimeoutException e) {
-                    runResult = converter.runWithHint(logicalPlan, request.getPlan());
+            Option<ConvertResult> optConvertResult;
+            Option<HandleResult> optDryRunResult = converter.dryRun(context);
+            boolean isAcyclic = optDryRunResult.nonEmpty();
+            Future<ConvertResult> convertResultFuture = executor.submit(() -> {
+                if (isAcyclic) {
+                    return converter.convertAcyclic(context);
+                } else {
+                    return converter.convertCyclic(context);
                 }
+            });
+
+            int maxTimeout = timeout.orElse(Integer.MAX_VALUE);
+            try {
+                optConvertResult = Some.apply(convertResultFuture.get(maxTimeout, TimeUnit.MILLISECONDS));
+            } catch (InterruptedException | ExecutionException | TimeoutException e1) {
+                optConvertResult = convertResultOnTimeout(converter, context, request.getPlan(), optDryRunResult);
             }
 
-            ParseQueryResponse response = new ParseQueryResponse();
-            response.setTables(tables.stream()
-                    .map(t -> new Table(t.getTableName(), Arrays.stream(t.getTableColumnNames()).collect(Collectors.toList())))
-                    .collect(Collectors.toList()));
+            Result result = new Result();
+            if (optConvertResult.nonEmpty()) {
+                ConvertResult convertResult = optConvertResult.get();
+                ParseQueryResponse response = new ParseQueryResponse();
+                response.setTables(tables.stream()
+                        .map(t -> new Table(t.getTableName(), Arrays.stream(t.getTableColumnNames()).collect(Collectors.toList())))
+                        .collect(Collectors.toList()));
 
-            List<JoinTree> joinTrees = JavaConverters.seqAsJavaList(runResult.candidates()).stream()
-                    .map(t -> buildJoinTree(t._1(), t._2(), t._3(), request.getPlan()))
-                    .collect(Collectors.toList());
-            response.setJoinTrees(joinTrees);
+                List<JoinTree> joinTrees = JavaConverters.seqAsJavaList(convertResult.candidates()).stream()
+                        .map(t -> buildJoinTree(t._1(), t._2(), t._3(), request.getPlan()))
+                        .collect(Collectors.toList());
+                response.setJoinTrees(joinTrees);
 
-            List<Computation> computations = JavaConverters.seqAsJavaList(runResult.computations()).stream()
-                    .map(c -> new Computation(c._1.name(), c._2.format()))
-                    .collect(Collectors.toList());
-            response.setComputations(computations);
+                List<Computation> computations = JavaConverters.seqAsJavaList(convertResult.computations()).stream()
+                        .map(c -> new Computation(c._1.name(), c._2.format()))
+                        .collect(Collectors.toList());
+                response.setComputations(computations);
 
-            response.setOutputVariables(JavaConverters.seqAsJavaList(runResult.outputVariables()).stream().map(Variable::name).collect(Collectors.toList()));
-            response.setGroupByVariables(JavaConverters.seqAsJavaList(runResult.groupByVariables()).stream().map(Variable::name).collect(Collectors.toList()));
-            List<Aggregation> aggregations = JavaConverters.seqAsJavaList(runResult.aggregations()).stream()
-                    .map(t -> new Aggregation(t._1().name(), t._2(), JavaConverters.seqAsJavaList(t._3()).stream().map(Expression::format).collect(Collectors.toList())))
-                    .collect(Collectors.toList());
-            response.setAggregations(aggregations);
+                response.setOutputVariables(JavaConverters.seqAsJavaList(convertResult.outputVariables()).stream().map(Variable::name).collect(Collectors.toList()));
+                response.setGroupByVariables(JavaConverters.seqAsJavaList(convertResult.groupByVariables()).stream().map(Variable::name).collect(Collectors.toList()));
+                List<Aggregation> aggregations = JavaConverters.seqAsJavaList(convertResult.aggregations()).stream()
+                        .map(t -> new Aggregation(t._1().name(), t._2(), JavaConverters.seqAsJavaList(t._3()).stream().map(Expression::format).collect(Collectors.toList())))
+                        .collect(Collectors.toList());
+                response.setAggregations(aggregations);
 
-            if (runResult.optTopK().nonEmpty()) {
-                TopK topK = new TopK();
-                topK.setOrderByVariable(runResult.optTopK().get().sortBy().name());
-                topK.setDesc(runResult.optTopK().get().isDesc());
-                topK.setLimit(runResult.optTopK().get().limit());
-                response.setTopK(topK);
+                if (convertResult.optTopK().nonEmpty()) {
+                    TopK topK = new TopK();
+                    topK.setOrderByVariable(convertResult.optTopK().get().sortBy().name());
+                    topK.setDesc(convertResult.optTopK().get().isDesc());
+                    topK.setLimit(convertResult.optTopK().get().limit());
+                    response.setTopK(topK);
+                }
+
+                response.setFull(convertResult.isFull());
+
+                result.setCode(200);
+                result.setData(response);
+                return result;
+            } else {
+                result.setCode(200);
+                result.setData(null);
+                result.setMessage(Result.FALLBACK);
+                return result;
             }
-
-            response.setFull(runResult.isFull());
-            response.setFreeConnex(runResult.isFreeConnex());
+        } catch (Exception e) {
+            e.printStackTrace();
 
             Result result = new Result();
             result.setCode(200);
-            result.setData(response);
+            result.setData(null);
+            result.setMessage(Result.FALLBACK);
             return result;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 
@@ -215,8 +229,6 @@ public class RestApiController {
         List<Integer> subset = JavaConverters.setAsJavaSet(joinTree.getSubset()).stream().map(Relation::getRelationId).collect(Collectors.toList());
         result.setSubset(subset);
 
-        result.setMaxFanout(joinTree.getMaxFanout());
-
         List<Comparison> comparisons = JavaConverters.setAsJavaSet(comparisonHyperGraph.getEdges()).stream().map(c -> {
             String op = c.op().getFuncName();
             List<JoinTreeEdge> path = JavaConverters.setAsJavaSet(c.getNodes()).stream()
@@ -235,5 +247,18 @@ public class RestApiController {
         result.setFixRoot(joinTree.isFixRoot());
 
         return result;
+    }
+
+    private Option<ConvertResult>  convertResultOnTimeout(LogicalPlanConverter converter, Context context,
+                                                            HintNode hint, Option<HandleResult> optDryRunResult) {
+        if (hint != null) {
+            try {
+                return Some.apply(converter.convertHint(context, hint));
+            } catch (Exception e) {
+                return optDryRunResult.map(result -> converter.convertHandleResult(context, result));
+            }
+        } else {
+            return optDryRunResult.map(result -> converter.convertHandleResult(context, result));
+        }
     }
 }

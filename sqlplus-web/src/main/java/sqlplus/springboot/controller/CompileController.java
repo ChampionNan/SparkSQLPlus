@@ -8,10 +8,9 @@ import org.apache.commons.io.FileUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
+import scala.Option;
 import scala.Tuple2;
 import scala.Tuple3;
-import scala.collection.JavaConverters;
 import scala.collection.mutable.StringBuilder;
 import sqlplus.catalog.CatalogManager;
 import sqlplus.codegen.CodeGenerator;
@@ -20,26 +19,18 @@ import sqlplus.codegen.SparkSQLPlusExampleCodeGenerator;
 import sqlplus.codegen.SparkSQLPlusExperimentCodeGenerator;
 import sqlplus.compile.CompileResult;
 import sqlplus.compile.SqlPlusCompiler;
-import sqlplus.convert.ExtraCondition;
-import sqlplus.convert.LogicalPlanConverter;
-import sqlplus.convert.RunResult;
-import sqlplus.convert.TopK;
+import sqlplus.convert.*;
 import sqlplus.expression.Expression;
 import sqlplus.expression.Variable;
 import sqlplus.expression.VariableManager;
 import sqlplus.graph.*;
-import sqlplus.graph.JoinTree;
-import sqlplus.graph.JoinTreeEdge;
 import sqlplus.parser.SqlPlusParser;
 import sqlplus.parser.ddl.SqlCreateTable;
 import sqlplus.plan.SqlPlusPlanner;
 import sqlplus.plan.table.SqlPlusTable;
 import sqlplus.springboot.dto.HyperGraph;
 import sqlplus.springboot.dto.*;
-import sqlplus.springboot.rest.object.*;
-import sqlplus.springboot.rest.response.ParseQueryResponse;
 import sqlplus.springboot.util.CustomQueryManager;
-
 
 import java.io.File;
 import java.io.IOException;
@@ -138,22 +129,30 @@ public class CompileController {
 
             variableManager = new VariableManager();
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager, catalogManager);
-            RunResult runResult = converter.run(logicalPlan, null, false, false);
-            outputVariables = runResult.outputVariables();
-            computations = runResult.computations();
-            isFull = runResult.isFull();
-            isFreeConnex = runResult.isFreeConnex();
-            groupByVariables = runResult.groupByVariables();
-            aggregations = runResult.aggregations();
-            optTopK = runResult.optTopK();
+
+            Context context = converter.traverseLogicalPlan(logicalPlan);
+            boolean isAcyclic = converter.dryRun(context).nonEmpty();
+            ConvertResult convertResult = null;
+            if (isAcyclic) {
+                convertResult = converter.convertAcyclic(context);
+            } else {
+                convertResult = converter.convertCyclic(context);
+            }
+
+            outputVariables = convertResult.outputVariables();
+            computations = convertResult.computations();
+            isFull = convertResult.isFull();
+            groupByVariables = convertResult.groupByVariables();
+            aggregations = convertResult.aggregations();
+            optTopK = convertResult.optTopK();
 
             if (!isFull) {
                 // is the query is non-full, we add DISTINCT keyword to SparkSQL explicitly
                 sql = sql.replaceFirst("[s|S][e|E][l|L][e|E][c|C][t|T]", "SELECT DISTINCT");
             }
 
-            candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(runResult.candidates(), 4));
-            return mkSubmitResult(candidates, "");
+            candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(convertResult.candidates(), 4));
+            return mkSubmitResult(candidates);
         } catch (SqlParseException e) {
             throw new RuntimeException(e);
         }
@@ -332,7 +331,7 @@ public class CompileController {
         tables = scala.collection.JavaConverters.asScalaBuffer(sourceTables).toList();
     }
 
-    private Result mkSubmitResult(List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates, String ddl_name) {
+    private Result mkSubmitResult(List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates) {
         Result result = new Result();
         result.setCode(200);
         CompileSubmitResponse response = new CompileSubmitResponse();
@@ -442,19 +441,18 @@ public class CompileController {
         Result result = new Result();
         result.setCode(200);
 
-        RunResult runResult = RunResult.buildFromSingleResult(
+        ConvertResult convertResult = ConvertResult.buildFromSingleResult(
                 candidates.get(request.getIndex()),
                 outputVariables,
                 computations,
                 isFull,
-                isFreeConnex,
                 groupByVariables,
                 aggregations,
                 optTopK
         );
 
         SqlPlusCompiler sqlPlusCompiler = new SqlPlusCompiler(variableManager);
-        compileResult = sqlPlusCompiler.compile(catalogManager, runResult, false);
+        compileResult = sqlPlusCompiler.compile(catalogManager, convertResult, false);
         CodeGenerator codeGenerator = new SparkSQLPlusExampleCodeGenerator(compileResult,
                 "sqlplus.example", "SparkSQLPlusExample");
         StringBuilder builder = new StringBuilder();

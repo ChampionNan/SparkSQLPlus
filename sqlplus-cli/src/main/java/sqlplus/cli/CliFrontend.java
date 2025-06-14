@@ -13,8 +13,9 @@ import sqlplus.codegen.CodeGenerator;
 import sqlplus.codegen.SparkSQLPlusExampleCodeGenerator;
 import sqlplus.compile.CompileResult;
 import sqlplus.compile.SqlPlusCompiler;
+import sqlplus.convert.Context;
+import sqlplus.convert.ConvertResult;
 import sqlplus.convert.LogicalPlanConverter;
-import sqlplus.convert.RunResult;
 import sqlplus.expression.VariableManager;
 import sqlplus.parser.SqlPlusParser;
 import sqlplus.plan.SqlPlusPlanner;
@@ -82,10 +83,17 @@ public class CliFrontend {
             VariableManager variableManager = new VariableManager();
 
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager, catalogManager);
-            RunResult runResult = converter.runAndSelect(logicalPlan, "degree", false, 1, false, false);
+            Context context = converter.traverseLogicalPlan(logicalPlan);
+            boolean isAcyclic = converter.dryRun(context).nonEmpty();
+            ConvertResult convertResult = null;
+            if (isAcyclic) {
+                convertResult = converter.convertAcyclic(context);
+            } else {
+                convertResult = converter.convertCyclic(context);
+            }
 
             SqlPlusCompiler sqlPlusCompiler = new SqlPlusCompiler(variableManager);
-            CompileResult compileResult = sqlPlusCompiler.compile(catalogManager, runResult, true);
+            CompileResult compileResult = sqlPlusCompiler.compile(catalogManager, convertResult, true);
             CodeGenerator codeGenerator = new SparkSQLPlusExampleCodeGenerator(compileResult, packageName, objectName);
             StringBuilder builder = new StringBuilder();
             codeGenerator.generate(builder);
