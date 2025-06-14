@@ -80,6 +80,14 @@ public class ParseQueryResponse {
     public void setFull(boolean full) {
         isFull = full;
     }
+
+    public void setQuery(String query) { query =  query; }
+
+    public String getQuery() { return query; }
+
+    public void setDdl(String ddl) { this.ddl = ddl; }
+
+    public String getDdl() { return ddl; }
 }
 
 

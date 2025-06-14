@@ -8,9 +8,11 @@ import org.apache.commons.io.FileUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
 import scala.Option;
 import scala.Tuple2;
 import scala.Tuple3;
+import scala.collection.JavaConverters;
 import scala.collection.mutable.StringBuilder;
 import sqlplus.catalog.CatalogManager;
 import sqlplus.codegen.CodeGenerator;
@@ -30,6 +32,10 @@ import sqlplus.plan.SqlPlusPlanner;
 import sqlplus.plan.table.SqlPlusTable;
 import sqlplus.springboot.dto.HyperGraph;
 import sqlplus.springboot.dto.*;
+import sqlplus.springboot.rest.object.Aggregation;
+import sqlplus.springboot.rest.object.Computation;
+import sqlplus.springboot.rest.object.Table;
+import sqlplus.springboot.rest.response.ParseQueryResponse;
 import sqlplus.springboot.util.CustomQueryManager;
 
 import java.io.File;
@@ -152,7 +158,7 @@ public class CompileController {
             }
 
             candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(convertResult.candidates(), 4));
-            return mkSubmitResult(candidates);
+            return mkSubmitResult(candidates, "");
         } catch (SqlParseException e) {
             throw new RuntimeException(e);
         }
@@ -179,7 +185,14 @@ public class CompileController {
             Optional<Boolean> fixRootEnable = Optional.of(false);
             Optional<Boolean> pruneEnable = Optional.of(false);
             LogicalPlanConverter converter = new LogicalPlanConverter(variableManager, catalogManager);
-            RunResult runResult = converter.runAndSelect(logicalPlan, orderBy.orElse(""), desc.orElse(false), limit.orElse(Integer.MAX_VALUE), fixRootEnable.orElse(false), pruneEnable.orElse(false));
+            Context context = converter.traverseLogicalPlan(logicalPlan);
+            boolean isAcyclic = converter.dryRun(context).nonEmpty();
+            ConvertResult convertResult = null;
+            if (isAcyclic) {
+                convertResult = converter.convertAcyclic(context);
+            } else {
+                convertResult = converter.convertCyclic(context);
+            }
 
             ParseQueryResponse response = new ParseQueryResponse();
             response.setDdl(request.getDdl());
@@ -188,34 +201,34 @@ public class CompileController {
                     .map(t -> new Table(t.getTableName(), Arrays.stream(t.getTableColumnNames()).collect(Collectors.toList())))
                     .collect(Collectors.toList()));
 
-            List<sqlplus.springboot.rest.object.JoinTree> joinTrees = JavaConverters.seqAsJavaList(runResult.candidates()).stream()
+            List<sqlplus.springboot.rest.object.JoinTree> joinTrees = JavaConverters.seqAsJavaList(convertResult.candidates()).stream()
                     .map(t -> new RestApiController().buildJoinTree(t._1(), t._2(), t._3(), null))
                     .collect(Collectors.toList());
             response.setJoinTrees(joinTrees);
 
-            List<Computation> computations = JavaConverters.seqAsJavaList(runResult.computations()).stream()
+            List<Computation> computations = JavaConverters.seqAsJavaList(convertResult.computations()).stream()
                     .map(c -> new Computation(c._1.name(), c._2.format()))
                     .collect(Collectors.toList());
             response.setComputations(computations);
 
-            response.setOutputVariables(JavaConverters.seqAsJavaList(runResult.outputVariables()).stream().map(Variable::name).collect(Collectors.toList()));
-            response.setGroupByVariables(JavaConverters.seqAsJavaList(runResult.groupByVariables()).stream().map(Variable::name).collect(Collectors.toList()));
-            List<Aggregation> aggregations = JavaConverters.seqAsJavaList(runResult.aggregations()).stream()
+            response.setOutputVariables(JavaConverters.seqAsJavaList(convertResult.outputVariables()).stream().map(Variable::name).collect(Collectors.toList()));
+            response.setGroupByVariables(JavaConverters.seqAsJavaList(convertResult.groupByVariables()).stream().map(Variable::name).collect(Collectors.toList()));
+            List<Aggregation> aggregations = JavaConverters.seqAsJavaList(convertResult.aggregations()).stream()
                     .map(t -> new Aggregation(t._1().name(), t._2(), JavaConverters.seqAsJavaList(t._3()).stream().map(Expression::format).collect(Collectors.toList())))
                     .collect(Collectors.toList());
             response.setAggregations(aggregations);
 
-            if (runResult.optTopK().nonEmpty()) {
+            if (convertResult.optTopK().nonEmpty()) {
                 sqlplus.springboot.rest.object.TopK topK = new sqlplus.springboot.rest.object.TopK();
-                topK.setOrderByVariable(runResult.optTopK().get().sortBy().name());
-                topK.setDesc(runResult.optTopK().get().isDesc());
-                topK.setLimit(runResult.optTopK().get().limit());
+                topK.setOrderByVariable(convertResult.optTopK().get().sortBy().name());
+                topK.setDesc(convertResult.optTopK().get().isDesc());
+                topK.setLimit(convertResult.optTopK().get().limit());
                 response.setTopK(topK);
             }
 
-            response.setFull(runResult.isFull());
+            response.setFull(convertResult.isFull());
 
-            if (!runResult.isFull()) {
+            if (!convertResult.isFull()) {
                 // is the query is non-full, we add DISTINCT keyword to SparkSQL explicitly
                 sql = sql.replaceFirst("[s|S][e|E][l|L][e|E][c|C][t|T]", "SELECT DISTINCT");
             }
@@ -223,7 +236,6 @@ public class CompileController {
             if (!sql.endsWith(";")) {
                 sql = sql + ";";
             }
-            response.setFreeConnex(runResult.isFreeConnex());
 
             Result result = new Result();
             result.setCode(200);
@@ -299,7 +311,7 @@ public class CompileController {
             }
 
             // TODO: add index setting
-            scala.collection.immutable.List<scala.Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> scalaCandidates = runResult.candidates();
+            scala.collection.immutable.List<scala.Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> scalaCandidates = convertResult.candidates();
 
             java.util.List<scala.Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> javaCandidatesList =
                     scala.collection.JavaConverters.seqAsJavaList(scalaCandidates);
@@ -331,7 +343,7 @@ public class CompileController {
         tables = scala.collection.JavaConverters.asScalaBuffer(sourceTables).toList();
     }
 
-    private Result mkSubmitResult(List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates) {
+    private Result mkSubmitResult(List<Tuple3<JoinTree, ComparisonHyperGraph, scala.collection.immutable.List<ExtraCondition>>> candidates, String ddl_name) {
         Result result = new Result();
         result.setCode(200);
         CompileSubmitResponse response = new CompileSubmitResponse();
