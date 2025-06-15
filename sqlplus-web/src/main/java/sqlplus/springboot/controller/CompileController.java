@@ -328,9 +328,15 @@ public class CompileController {
             candidates = scala.collection.JavaConverters.seqAsJavaList(converter.candidatesWithLimit(scalaSelectedCandidates, 4));
             return mkSubmitResult(candidates, ddl_name);
         } catch (SqlParseException e) {
+            ParseQueryResponse response = new ParseQueryResponse();
+            response.setQuery(request.getQuery());
             Result result = new Result();
             result.setCode(404);
             result.setMessage(Result.FALLBACK);
+            result.setData(response);
+            RestTemplate restTemplate = new RestTemplate();
+            String pythonUrl = "http://localhost:8000/python-api";
+            ResponseEntity<String> pythonResp = restTemplate.postForEntity(pythonUrl, result, String.class);
             return result;
         }
     }
